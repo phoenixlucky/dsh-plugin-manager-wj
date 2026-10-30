@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "title": "WJ plugin control center"
+  },
+  "tab": "Registration inventory",
+  "search": "Search tools or MCP servers",
+  "refresh": "Refresh",
+  "loading": "Reading runtime registrations…",
+  "error": "The registration inventory could not be read.",
+  "retry": "Retry",
+  "empty": "There are no tool or MCP registrations yet.",
+  "unsupported": "This Harness Host does not provide runtime tool and MCP inventory. Upgrade Harness to view it.",
+  "tools": "Tool registrations",
+  "mcp": "MCP servers",
+  "owner": "Owning plugin",
+  "scope": "Scope",
+  "global": "Global",
+  "scoped": "Agent scope",
+  "conditional": "Conditional",
+  "unconditional": "Always registered",
+  "serverState": "Connection state",
+  "toolNames": "Tool names"
+}
