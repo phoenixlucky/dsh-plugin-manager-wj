@@ -2,6 +2,8 @@
 
 **WJ 插件管理中心**是 DeepSeek Harness 三层插件管理架构的 Web 管理层，扩展现有独立 WJ bundle，并在 **设置 → 插件** 下添加管理标签页。
 
+![插件管理界面](assets/plugin-management.webp)
+
 ## 功能
 
 - **Harness Core：**使用 Host 提供的插件注册表、配置解析、冲突检测、生命周期与依赖管理，以及设置服务。

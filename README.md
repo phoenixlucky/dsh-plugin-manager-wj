@@ -2,6 +2,8 @@
 
 **WJ Plugin Management** is the Web management layer for DeepSeek Harness's three-layer plugin-management design. It extends the independent WJ bundle and adds a management tab under **Settings → Plugins**.
 
+![Plugin management interface](assets/plugin-management.webp)
+
 ## Features
 
 - **Harness Core:** consumes the Host's plugin registry, configuration resolver, conflict detector, lifecycle/dependency manager, and settings services.
