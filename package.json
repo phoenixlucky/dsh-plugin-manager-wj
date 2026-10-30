@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-manager-wj",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Three-layer plugin management, health diagnostics, configuration provenance, and tool/MCP inventory for DeepSeek Harness.",
   "type": "module",
   "main": "index.js",

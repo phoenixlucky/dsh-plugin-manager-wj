@@ -350,7 +350,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'remote', 'remote.pluginInventory'],
+      inject: ['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.pluginManager', 'configForms'],
       apply(ctx) {
         const zh = {
           tab: '插件管理', search: '搜索插件、诊断、工具或 MCP', refresh: '刷新', loading: '正在读取 Host 状态…', loadingShort: '读取中…',

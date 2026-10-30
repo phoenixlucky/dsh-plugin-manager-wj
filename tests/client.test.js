@@ -34,6 +34,8 @@ test('schema form omits a secret object and all of its descendants', () => {
   runInNewContext(source, {
     window: { __ModuleLoader__: { load(bundle) { plugin = bundle.factory(name => name === 'react' ? React : undefined) } } },
   })
+  assert.ok(plugin.inject.includes('remote.pluginManager'))
+  assert.ok(plugin.inject.includes('configForms'))
 
   const locale = {
     register() {},
