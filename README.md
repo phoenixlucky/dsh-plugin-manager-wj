@@ -1,33 +1,35 @@
 # dsh-plugin-manager-wj
 
-**WJ plugin control center** is a read-only DeepSeek Harness Web bundle for inspecting the tools and MCP servers registered at runtime. The package version is **1.1.0**.
+**WJ Plugin Management** is the Web management layer for DeepSeek Harness's three-layer plugin-management design. It extends the independent WJ bundle and adds a management tab under **Settings → Plugins**.
 
-The bundle adds a **Registration inventory** tab under **Settings → Plugins**. It reads the Host's `pluginInventory/list` snapshot and displays:
+## Features
 
-- Tool name, owning plugin, scope, and whether registration is conditional.
-- MCP server name, owning plugin, scope, connection state, and public tool names.
-- Search across tool names, plugin identifiers, MCP server names, connection states, and MCP tool names; refresh and retry controls are also available.
+- **Harness Core:** consumes the Host's plugin registry, configuration resolver, conflict detector, lifecycle/dependency manager, and settings services.
+- **Management API:** shows plugin state and health findings, configuration provenance, and tool/MCP runtime registrations. It can enable or disable profile-addressable plugins.
+- **Management UI:** filters findings and plugins, edits non-secret scalar settings through the existing schema-backed `configForms`, and previews supported duplicate-registration repairs.
 
-## Requirements
+Enabling or disabling a plugin writes through the Host's existing profile manager. A change can apply immediately, require a restart, be overridden by a higher-priority layer, or be refused by the Host. Repair previews are short-lived and become invalid when their finding changes. Selecting a low-risk repair with one eligible target executes it automatically; a high-risk repair first shows the exact effect and requires an explicit confirmation click. The current repair action disables the selected plugin involved in a duplicate global tool or MCP registration.
 
-Use a DeepSeek Harness Host that exposes tool and MCP runtime inventory through `pluginInventory/list`. If the Host does not provide the expected tool-registration fields, the tab shows an unsupported-version message. Older Hosts may therefore need an upgrade.
+Configuration fields are discovered from each Host-provided schema. Secret fields are omitted from the editor, and provenance shows layer names and redacted identities, never values or filesystem paths. The Host remains responsible for schema validation and persistence.
 
-This package only displays the inventory returned by the Host. It does not read plugin configuration, credentials, tool schemas, or execution functions, and it cannot add, remove, or change registrations.
+## Requirements and limitations
+
+Use a Harness Host that exposes the plugin-management Remote, settings forms, and runtime inventory. Older Hosts may show inventory only or report diagnostics as unavailable; upgrade Harness to use management actions. Only plugins addressable through the active profile can be toggled. The UI does not install/remove packages, edit credentials, or run arbitrary repair commands.
 
 ## Install
 
-1. Make this package available to the Harness package resolver, for example from a local checkout or a package registry where it has been published.
+1. Make this package available to the Harness package resolver, for example from a local checkout or published package.
 2. Add the `dsh-plugin-manager-wj` bundle to the target Web profile.
-3. Open **Settings → Plugins** and select **Registration inventory**.
+3. Open **Settings → Plugins → Plugin management**.
 
-The package's `dsh.client` manifest loads the browser client, and `cordis.patch.yml` inserts the bundle into the Host. To remove the tab, remove the bundle from the profile. The Harness core registries do not depend on this UI bundle.
+`dsh.client` loads the browser client, and `cordis.patch.yml` inserts the bundle into the Host. Remove the bundle from the profile to remove the management tab. Core registry and management services do not depend on this UI bundle.
 
-This repository does not publish the package or configure a package registry. Publish it to a registry or make it available through Git before installing it from that source.
+This repository does not publish the package or configure a package registry.
 
 ## Development
 
-The package is an ES module. Its Host entry point is `index.js`; the inventory UI is in `client.js`. Localized strings are in `locale/`, and `cordis.patch.yml` contains the Host bundle patch. No build or test scripts are currently defined in `package.json`.
+The package is an ES module. `index.js` is the Host entry point and `client.js` contains the browser UI. Localized package metadata is in `locale/`; the UI's full dictionaries are registered in `client.js`. Run `node --test` for the bundle behavior check and `node --check client.js` for a syntax check. Harness API and Host behavior are implemented and tested in the `deepseek-harness` repository.
 
 ## License
 
-MIT. See the package metadata for the license declaration.
+MIT.

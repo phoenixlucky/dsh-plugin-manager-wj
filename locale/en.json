@@ -1,15 +1,15 @@
 {
   "meta": {
-    "title": "WJ registration inventory"
+    "title": "WJ Plugin Management"
   },
-  "tab": "Registration inventory",
-  "search": "Search tools or MCP servers",
+  "tab": "Plugin management",
+  "search": "Search plugins, findings, tools or MCP",
   "refresh": "Refresh",
   "loading": "Reading runtime registrations…",
   "error": "The registration inventory could not be read.",
   "retry": "Retry",
-  "empty": "There are no tool or MCP registrations yet.",
-  "unsupported": "This Harness Host does not provide runtime tool and MCP inventory. Upgrade Harness to view it.",
+  "empty": "There are no plugin, tool or MCP records yet.",
+  "unsupported": "This Harness Host does not provide plugin management and runtime inventory. Upgrade Harness to manage plugins.",
   "tools": "Tool registrations",
   "mcp": "MCP servers",
   "owner": "Owning plugin",

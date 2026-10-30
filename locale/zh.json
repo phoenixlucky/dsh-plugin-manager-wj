@@ -1,15 +1,15 @@
 {
   "meta": {
-    "title": "WJ 注册清单"
+    "title": "WJ 插件管理"
   },
-  "tab": "注册清单",
-  "search": "搜索工具或 MCP Server",
+  "tab": "插件管理",
+  "search": "搜索插件、诊断、工具或 MCP",
   "refresh": "刷新",
   "loading": "正在读取运行时注册…",
   "error": "无法读取注册清单。",
   "retry": "重试",
-  "empty": "当前没有工具或 MCP 注册。",
-  "unsupported": "当前 Harness Host 未提供工具和 MCP 运行时清单，请升级 Harness 后再查看。",
+  "empty": "当前没有插件、工具或 MCP 记录。",
+  "unsupported": "当前 Harness Host 未提供插件管理和运行时清单，请升级 Harness 后管理插件。",
   "tools": "工具注册",
   "mcp": "MCP Server",
   "owner": "所属插件",
