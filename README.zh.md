@@ -1,6 +1,6 @@
 # dsh-plugin-manager-wj
 
-**WJ 插件管理中心**是一个只读的 DeepSeek Harness Web bundle，用于查看运行时注册的工具和 MCP Server。当前包版本为 **1.0.0**。
+**WJ 插件管理中心**是一个只读的 DeepSeek Harness Web bundle，用于查看运行时注册的工具和 MCP Server。当前包版本为 **1.1.0**。
 
 插件会在 **设置 → 插件** 中添加“注册清单”标签页，读取 Host 的 `pluginInventory/list` 快照并展示：
 

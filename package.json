@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-manager-wj",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Read-only tool and MCP registration inventory for DeepSeek Harness.",
   "type": "module",
   "main": "index.js",

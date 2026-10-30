@@ -1,6 +1,6 @@
 # dsh-plugin-manager-wj
 
-**WJ plugin control center** is a read-only DeepSeek Harness Web bundle for inspecting the tools and MCP servers registered at runtime. The package version is **1.0.0**.
+**WJ plugin control center** is a read-only DeepSeek Harness Web bundle for inspecting the tools and MCP servers registered at runtime. The package version is **1.1.0**.
 
 The bundle adds a **Registration inventory** tab under **Settings → Plugins**. It reads the Host's `pluginInventory/list` snapshot and displays:
 
