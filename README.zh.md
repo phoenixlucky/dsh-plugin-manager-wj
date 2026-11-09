@@ -21,7 +21,7 @@
 ## 安装
 
 1. 让 Harness package resolver 能加载本包，例如使用本地检出版本或已发布包。
-2. 将 `dsh-plugin-manager-wj` bundle 加入目标 Web profile。
+2. 将 `@tinyforge/dsh-plugin-manager-wj` bundle 加入目标 Web profile。
 3. 打开 **设置 → 插件 → 插件管理**。
 
 `dsh.client` 会加载浏览器客户端，`cordis.patch.yml` 会将 bundle 插入 Host。从 profile 移除该 bundle 即可移除管理标签页。Harness 核心注册表和管理服务不依赖此 UI bundle。

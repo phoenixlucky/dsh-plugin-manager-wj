@@ -21,7 +21,7 @@ Use a Harness Host that exposes the plugin-management Remote, settings forms, an
 ## Install
 
 1. Make this package available to the Harness package resolver, for example from a local checkout or published package.
-2. Add the `dsh-plugin-manager-wj` bundle to the target Web profile.
+2. Add the `@tinyforge/dsh-plugin-manager-wj` bundle to the target Web profile.
 3. Open **Settings → Plugins → Plugin management**.
 
 `dsh.client` loads the browser client, and `cordis.patch.yml` inserts the bundle into the Host. Remove the bundle from the profile to remove the management tab. Core registry and management services do not depend on this UI bundle.
