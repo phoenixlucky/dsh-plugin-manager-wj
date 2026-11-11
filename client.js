@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 window.__ModuleLoader__.load({
   id: 'dsh-plugin-manager-wj',
   factory(require) {

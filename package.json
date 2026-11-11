@@ -1,6 +1,6 @@
 {
   "name": "@tinyforge/dsh-plugin-manager-wj",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Three-layer plugin management, health diagnostics, configuration provenance, and tool/MCP inventory for DeepSeek Harness.",
   "type": "module",
   "main": "index.js",
@@ -10,7 +10,7 @@
     "./client": "./client.js",
     "./locale/*.json": "./locale/*.json"
   },
-  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "README.md", "README.zh.md"],
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "README.md", "README.zh.md", "LICENSE"],
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
