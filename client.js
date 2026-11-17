@@ -9,7 +9,9 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const h = React.createElement
     const NS = 'settings.pluginManagerWj'
-    const TAB_ORDER = ['plugins', 'config', 'skill', 'mcp']
+    // MCP server management is owned by the Host's MCP settings bundle, so this page shows no MCP
+    // server list of its own: a second list here duplicated that page and read the same remote.
+    const TAB_ORDER = ['plugins', 'config', 'skill', 'tools']
     const TAB_KEY = 'dsh-plugin-manager-wj/tab'
 
     function unwrap(result, name) {
@@ -318,22 +320,13 @@ window.__ModuleLoader__.load({
           rows.length ? h('ul', { style: styles.list }, rows.map(skillRow)) : null))
     }
 
-    function McpPanel({ inventory, mcpRows, toolRows, needle, t }) {
+    // Tool ownership is the one diagnostic the MCP settings page does not carry: it answers
+    // "which plugin registered this tool", which belongs to plugin management, not to MCP setup.
+    function ToolsPanel({ inventory, toolRows, needle, t }) {
       const owner = row => row.owner ? `${row.owner.moduleName} (${row.owner.entryId})` : '—'
       return h('div', { style: styles.page },
-        h('p', { style: styles.description }, t('mcpIntro')),
-        h(Section, { id: 'mcp', title: t('mcp'), count: `${mcpRows.length} ${t('items')}`, empty: t(needle ? 'noMatches' : 'noRows') },
-          mcpRows.length ? h('ul', { style: styles.list }, mcpRows.map(row => h('li', { key: `${row.serverName}:${row.owner?.entryId ?? ''}`, style: styles.row },
-            h('div', { style: styles.rowHead },
-              h('h3', { style: styles.rowTitle }, row.serverName),
-              h('span', { style: { ...styles.badge, ...(row.state === 'connected' ? {} : styles.warning) } }, t(row.state))),
-            h('div', { style: styles.meta }, [
-              row.transport ? `${t('transport')}: ${row.transport}` : null,
-              row.source ? `${t('mcpSource')}: ${row.source}` : null,
-              row.toolCount === undefined ? null : `${t('toolCount')}: ${row.toolCount}`,
-              `${t('owner')}: ${owner(row)}`,
-            ].filter(Boolean).join(' · ')),
-            row.toolNames?.length ? h('div', { style: styles.meta }, `${t('toolNames')}: ${row.toolNames.join(', ')}`) : null))) : null),
+        h('p', { style: styles.description }, t('toolsIntro')),
+        h('p', { style: styles.message }, t('toolsMcpNote')),
         h(Section, { id: 'tools', title: t('tools'), count: `${toolRows.length} ${t('items')}`, empty: t(needle ? 'noMatches' : 'noRows') },
           toolRows.length ? h('ul', { style: styles.list }, toolRows.map(row => h('li', { key: `${row.name}:${row.owner?.entryId ?? ''}`, style: styles.row },
             h('h3', { style: styles.rowTitle }, row.name),
@@ -341,7 +334,7 @@ window.__ModuleLoader__.load({
         inventory ? null : h('p', { style: styles.message }, t('inventoryUnavailable')))
     }
 
-    function ManagerPage({ list, manager, forms, loadSkills, listMcpStatus, readSessionId, watchSessions, t }) {
+    function ManagerPage({ list, manager, forms, loadSkills, readSessionId, watchSessions, t }) {
       const initialTab = readStoredTab()
       const [tab, setTab] = React.useState(initialTab)
       const [visited, setVisited] = React.useState([initialTab])
@@ -388,19 +381,17 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         let live = true
         Promise.resolve().then(async () => {
-          const [inventoryResult, pluginResult, healthResult, settingsResult, statusResult] = await Promise.allSettled([
+          const [inventoryResult, pluginResult, healthResult, settingsResult] = await Promise.allSettled([
             list(),
             manager?.listPlugins ? manager.listPlugins() : Promise.reject(new Error('unavailable')),
             manager?.getHealthSnapshot ? manager.getHealthSnapshot() : Promise.reject(new Error('unavailable')),
             forms?.describe ? forms.describe().ensure().then(() => forms.describe().getSnapshot()) : Promise.reject(new Error('unavailable')),
-            listMcpStatus ? listMcpStatus() : Promise.resolve(undefined),
           ])
           if (inventoryResult.status !== 'fulfilled') throw inventoryResult.reason
           const inventory = inventoryResult.value
           const plugins = pluginResult.status === 'fulfilled' ? unwrap(pluginResult.value, 'pluginManager.listPlugins') : []
           const health = healthResult.status === 'fulfilled' ? unwrap(healthResult.value, 'pluginManager.getHealthSnapshot') : undefined
           const settings = settingsResult.status === 'fulfilled' ? settingsResult.value.view : undefined
-          const mcpStatus = statusResult.status === 'fulfilled' ? statusResult.value : undefined
           const provenance = new Map()
           if (settings && manager?.getConfigProvenance) {
             await Promise.all(settings.namespaces.map(async view => {
@@ -415,12 +406,12 @@ window.__ModuleLoader__.load({
               }
             }))
           }
-          if (live) setState({ kind: 'ready', snapshot: { inventory, plugins, health, settings, provenance, mcpStatus } })
+          if (live) setState({ kind: 'ready', snapshot: { inventory, plugins, health, settings, provenance } })
         }).catch(() => {
           if (live) setState(previous => ({ kind: 'error', snapshot: previous.snapshot }))
         })
         return () => { live = false }
-      }, [list, manager, forms, listMcpStatus, revision])
+      }, [list, manager, forms, revision])
 
       const refresh = () => {
         setState(current => ({ kind: 'loading', snapshot: current.snapshot }))
@@ -497,34 +488,12 @@ window.__ModuleLoader__.load({
       const pluginRows = plugins.filter(row => matches([row.moduleName, row.entryId, row.meta?.title, row.meta?.description]))
       const findings = (health?.findings ?? []).filter(row => matches([row.id, row.code, row.evidence?.name, row.evidence?.serverName, row.evidence?.packageName]))
       const toolRows = (inventory?.toolRegistrations ?? []).filter(row => matches([row.name, row.owner?.moduleName, row.owner?.entryId]))
-      // The Host's own registry only reports the MCP servers it composes itself. Servers managed by
-      // a companion package answer through `mcpClientStatus/list` instead, so both sources are merged
-      // by server name: transport, source and tool counts survive even when the Host registry is empty.
-      const mergedClients = new Map()
-      for (const row of current?.mcpStatus ?? []) {
-        mergedClients.set(row.serverName, {
-          serverName: row.serverName, state: row.state, transport: row.transport, source: row.source,
-          toolCount: row.toolCount, toolNames: (row.tools ?? []).map(tool => tool.name),
-        })
-      }
-      for (const row of inventory?.mcpClients ?? []) {
-        const previous = mergedClients.get(row.serverName) ?? {}
-        mergedClients.set(row.serverName, {
-          ...previous, ...row,
-          transport: row.transport ?? previous.transport,
-          source: row.source ?? previous.source,
-          toolCount: row.toolCount ?? previous.toolCount ?? row.toolNames?.length,
-          toolNames: row.toolNames ?? previous.toolNames,
-        })
-      }
-      const mcpRows = [...mergedClients.values()]
-        .filter(row => matches([row.serverName, row.state, row.transport, row.source, row.owner?.moduleName, ...(row.toolNames ?? [])]))
 
       const tabs = [
         { id: 'plugins', label: t('tabs.plugins'), count: plugins.length },
         { id: 'config', label: t('tabs.config'), count: settings?.namespaces?.length },
         { id: 'skill', label: t('tabs.skill'), count: skills?.kind === 'ready' ? skills.items.length : undefined },
-        { id: 'mcp', label: t('tabs.mcp'), count: mcpRows.length },
+        { id: 'tools', label: t('tabs.tools'), count: toolRows.length },
       ]
 
       const panel = (id, children) => visited.includes(id) ? h('div', {
@@ -541,7 +510,7 @@ window.__ModuleLoader__.load({
         [health?.enabledCount ?? plugins.filter(row => row.enabled).length, 'enabled'],
         [health ? health.findings.length : '—', 'findings'],
         [skills?.kind === 'ready' ? skills.items.length : '—', 'skills'],
-        [inventory ? mcpRows.length : '—', 'mcpStat'],
+        [inventory ? toolRows.length : '—', 'toolsStat'],
       ]
       const showStats = state.kind === 'ready' && current !== undefined
 
@@ -571,7 +540,7 @@ window.__ModuleLoader__.load({
         })),
         panel('config', h(ConfigPanel, { settings, settingsReady: settings !== undefined, plugins, forms, provenance: current?.provenance, t })),
         panel('skill', h(SkillPanel, { skills, needle, onRetry: refresh, t })),
-        panel('mcp', h(McpPanel, { inventory, mcpRows, toolRows, needle, t })))
+        panel('tools', h(ToolsPanel, { inventory, toolRows, needle, t })))
     }
 
     return {
@@ -582,20 +551,21 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale'],
       apply(ctx) {
         const zh = {
-          tab: '插件管理', search: '搜索当前视图的插件、配置、Skill 或 MCP', refresh: '刷新', loading: '正在读取 Host 状态…', loadingShort: '读取中…',
-          eyebrow: '插件健康与管理', heading: '插件管理', description: '查看插件状态与冲突，追踪配置来源，浏览 Skill 目录与 MCP 客户端，并通过受控操作修复问题。', summary: '当前状态', items: '项',
-          viewsLabel: '管理视图', 'tabs.plugins': '插件', 'tabs.config': '配置', 'tabs.skill': 'Skill', 'tabs.mcp': 'MCP',
+          tab: '插件管理', search: '搜索当前视图的插件、配置、Skill 或工具', refresh: '刷新', loading: '正在读取 Host 状态…', loadingShort: '读取中…',
+          eyebrow: '插件健康与管理', heading: '插件管理', description: '查看插件状态与冲突，追踪配置来源，浏览 Skill 目录与工具注册归属，并通过受控操作修复问题。', summary: '当前状态', items: '项',
+          viewsLabel: '管理视图', 'tabs.plugins': '插件', 'tabs.config': '配置', 'tabs.skill': 'Skill', 'tabs.tools': '工具',
           pluginsIntro: '实时插件清单、健康诊断与启停操作。只列出当前 Profile 可寻址的插件。',
           configIntro: '按 Host schema 编辑非密钥配置，并查看每个字段的有效来源与被覆盖层。',
           skillIntro: '当前会话可用的 Skill 目录，按会话工作目录解析，并随会话切换自动刷新；模型可调用与仅用户可调用的条目分开标记。',
-          mcpIntro: '已组合的 MCP 客户端连接状态与工具注册归属。',
+          toolsIntro: '运行时工具注册清单，以及每个工具由哪个插件提供、作用于哪个范围。',
+          toolsMcpNote: 'MCP 服务器的添加与连接配置由 Host 的 MCP 设置页负责；这里只做插件侧的注册归属诊断，不再重复列出 MCP 服务器。',
           error: '无法读取运行时清单。', retry: '重试', noRows: '暂无记录。', noMatches: '没有匹配的记录。', diagnosticsUnavailable: '此 Harness Host 尚未提供诊断接口；当前显示可用的插件和注册清单。',
-          inventoryUnavailable: '此 Host 未提供运行时清单接口，工具与 MCP 信息不可用。',
+          inventoryUnavailable: '此 Host 未提供运行时清单接口，工具注册信息不可用。',
           findingsTitle: '健康诊断', pluginsTitle: '插件', configurationTitle: '配置管理', plugins: '插件', enabled: '已启用', findings: '发现项', severity: '严重程度', affected: '相关插件', evidence: '证据',
           configEmpty: 'Host 未暴露可编辑的配置命名空间。', configUnavailable: '此 Host 未提供设置表单接口，配置视图不可用。',
           skillsTitle: 'Skill 目录', skillEmpty: '当前会话没有可用的 Skill。', skillUnsupported: '此 Host 未提供 skills 接口，Skill 目录不可用。', skillNoSession: '尚无可用会话。打开或切换会话后，这里会自动加载，无需刷新。', skillError: '无法读取 Skill 目录。', loadingSkills: '正在读取 Skill 目录…',
           skillModelInvocable: '模型可调用', skillUserOnly: '仅用户可调用', skillWhenToUse: '适用场景', skillPath: '指令文件',
-          mcpStat: 'MCP', skills: 'Skill',
+          toolsStat: '工具', skills: 'Skill',
           'plugin.activation-failed': '插件启动失败', 'tool.duplicate-name': '工具名称重复', 'mcp.connection-failed': 'MCP 连接异常', 'mcp.duplicate-name': 'MCP 名称重复',
           'bundle.compatibility-rejected': '组合包版本不兼容', 'bundle.dependency-invalid': '所选依赖无效', severityError: '错误', severityWarning: '警告', severityInfo: '提示', warning: '警告', info: '提示',
           source: '配置来源', shadowed: '被覆盖来源', sourceUnknown: '未知（Host 未提供来源）', bundle: '组合包', profile: 'Profile', home: 'Home', invocation: '本次启动',
@@ -603,25 +573,25 @@ window.__ModuleLoader__.load({
           previewRepair: '诊断并修复 {name}', repairPreview: '修复预览', target: '目标', effect: '影响', disablePlugin: '关闭插件', risk: '风险', low: '低', high: '高', reversible: '可撤销', notReversible: '不可撤销', applyRepair: '执行修复', confirmRepair: '确认并执行', cancel: '取消', previewOrRepairFailed: '无法预览或执行此修复。', stalePreview: '修复预览已过期或状态已变化，请重新加载后再试。',
           changeApplied: '设置已保存并应用。', restartRequired: '设置已保存；重启后生效。', changeOverridden: '设置已保存，但被更高优先级配置覆盖。', changeFailed: 'Host 未能应用此更改。',
           enable: '启用', disable: '停用', disabled: '已停用', enabledTag: '已启用', disabledTag: '已停用', active: '运行中', failed: '失败', loadingPhase: '加载中', pending: '等待中', unloading: '卸载中', notRunning: '未运行',
-          connecting: '连接中', disconnected: '已断开', transport: '传输方式', mcpSource: '连接来源', toolCount: '工具数',
           skillReadOnly: 'Skill 的启用与停用由 profile 的 skills 目录与指令文件决定；本 Host 未提供开关接口，因此这里只读展示当前会话可见的条目。',
-          'management-required': '管理服务受保护', unaddressable: '此条目无法通过当前 Profile 修改', activationFailed: '插件未能完成启动。', owner: '所属插件', tools: '工具注册', mcp: 'MCP 客户端', toolNames: '工具名称', global: '全局', scoped: '作用域', starting: '启动中', connected: '已连接', reconnecting: '正在重连', stopped: '已停止',
+          'management-required': '管理服务受保护', unaddressable: '此条目无法通过当前 Profile 修改', activationFailed: '插件未能完成启动。', owner: '所属插件', tools: '工具注册', global: '全局', scoped: '作用域',
         }
         const en = {
-          tab: 'Plugin management', search: 'Search the current view for plugins, settings, skills or MCP', refresh: 'Refresh', loading: 'Reading Host state…', loadingShort: 'Loading…',
-          eyebrow: 'PLUGIN HEALTH AND MANAGEMENT', heading: 'Plugin management', description: 'Review plugin status and conflicts, trace configuration sources, browse the skill catalog and MCP clients, and repair issues through bounded actions.', summary: 'Current status', items: 'items',
-          viewsLabel: 'Management views', 'tabs.plugins': 'Plugins', 'tabs.config': 'Configuration', 'tabs.skill': 'Skills', 'tabs.mcp': 'MCP',
+          tab: 'Plugin management', search: 'Search the current view for plugins, settings, skills or tools', refresh: 'Refresh', loading: 'Reading Host state…', loadingShort: 'Loading…',
+          eyebrow: 'PLUGIN HEALTH AND MANAGEMENT', heading: 'Plugin management', description: 'Review plugin status and conflicts, trace configuration sources, browse the skill catalog and tool ownership, and repair issues through bounded actions.', summary: 'Current status', items: 'items',
+          viewsLabel: 'Management views', 'tabs.plugins': 'Plugins', 'tabs.config': 'Configuration', 'tabs.skill': 'Skills', 'tabs.tools': 'Tools',
           pluginsIntro: 'Live plugin inventory, health findings and enable/disable actions. Only plugins addressable by the active profile are listed.',
           configIntro: 'Edit non-secret settings through the Host schema and see each field’s effective source and shadowed layers.',
           skillIntro: 'Skills available to the current session, resolved from its working directory and reloaded automatically when the session changes; model-invocable and user-only entries are marked separately.',
-          mcpIntro: 'Composed MCP client connections and the owners of registered tools.',
+          toolsIntro: 'Runtime tool registrations, with the plugin that provides each tool and the scope it applies to.',
+          toolsMcpNote: 'Adding and connecting MCP servers belongs to the Host’s MCP settings page; this view covers plugin-side ownership only and deliberately lists no MCP servers of its own.',
           error: 'The runtime inventory could not be read.', retry: 'Retry', noRows: 'No records.', noMatches: 'No matching records.', diagnosticsUnavailable: 'This Harness Host does not expose diagnostics yet. Available plugin and registration inventories are still shown.',
-          inventoryUnavailable: 'This Host does not expose the runtime inventory; tool and MCP details are unavailable.',
+          inventoryUnavailable: 'This Host does not expose the runtime inventory; tool registrations are unavailable.',
           findingsTitle: 'Health findings', pluginsTitle: 'Plugins', configurationTitle: 'Configuration', plugins: 'plugins', enabled: 'enabled', findings: 'findings', severity: 'Severity', affected: 'Affected plugins', evidence: 'Evidence',
           configEmpty: 'The Host exposes no editable configuration namespaces.', configUnavailable: 'This Host does not expose settings forms; configuration is unavailable.',
           skillsTitle: 'Skill catalog', skillEmpty: 'The current session has no available skills.', skillUnsupported: 'This Host does not expose the skills interface; the catalog is unavailable.', skillNoSession: 'No session yet. Open or switch a session and this view loads automatically — no refresh needed.', skillError: 'The skill catalog could not be read.', loadingSkills: 'Reading the skill catalog…',
           skillModelInvocable: 'Model-invocable', skillUserOnly: 'User-only', skillWhenToUse: 'When to use', skillPath: 'Instruction file',
-          mcpStat: 'MCP', skills: 'skills',
+          toolsStat: 'tools', skills: 'skills',
           'plugin.activation-failed': 'Plugin activation failed', 'tool.duplicate-name': 'Duplicate tool name', 'mcp.connection-failed': 'MCP connection issue', 'mcp.duplicate-name': 'Duplicate MCP name',
           'bundle.compatibility-rejected': 'Bundle version is incompatible', 'bundle.dependency-invalid': 'Selected dependency is invalid', severityError: 'Error', severityWarning: 'Warning', severityInfo: 'Info', warning: 'Warning', info: 'Info',
           source: 'Configuration source', shadowed: 'Shadowed sources', sourceUnknown: 'Unknown (Host did not provide a source)', bundle: 'Bundle', profile: 'Profile', home: 'Home', invocation: 'This launch',
@@ -629,9 +599,8 @@ window.__ModuleLoader__.load({
           previewRepair: 'Diagnose and repair {name}', repairPreview: 'Repair preview', target: 'Target', effect: 'Effect', disablePlugin: 'Disable plugin', risk: 'Risk', low: 'Low', high: 'High', reversible: 'Reversible', notReversible: 'Not reversible', applyRepair: 'Apply repair', confirmRepair: 'Confirm and apply', cancel: 'Cancel', previewOrRepairFailed: 'Could not preview or apply this repair.', stalePreview: 'The preview expired or state changed. Reload and preview the repair again.',
           changeApplied: 'The change was saved and applied.', restartRequired: 'The change was saved and will apply after restart.', changeOverridden: 'The change was saved but overridden by a higher-priority configuration.', changeFailed: 'The Host could not apply this change.',
           enable: 'Enable', disable: 'Disable', disabled: 'Disabled', enabledTag: 'Enabled', disabledTag: 'Disabled', active: 'Active', failed: 'Failed', loadingPhase: 'Loading', pending: 'Pending', unloading: 'Unloading', notRunning: 'Not running',
-          connecting: 'Connecting', disconnected: 'Disconnected', transport: 'Transport', mcpSource: 'Source', toolCount: 'Tools',
           skillReadOnly: 'Skills are enabled by the profile’s skills directories and instruction files; this Host exposes no toggle, so the catalog is read-only.',
-          'management-required': 'Management service is protected', unaddressable: 'This entry cannot be changed by the current profile', activationFailed: 'The plugin did not finish starting.', owner: 'Owner', tools: 'Tool registrations', mcp: 'MCP clients', toolNames: 'Tool names', global: 'Global', scoped: 'Scoped', starting: 'Starting', connected: 'Connected', reconnecting: 'Reconnecting', stopped: 'Stopped',
+          'management-required': 'Management service is protected', unaddressable: 'This entry cannot be changed by the current profile', activationFailed: 'The plugin did not finish starting.', owner: 'Owner', tools: 'Tool registrations', global: 'Global', scoped: 'Scoped',
         }
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'plugin-manager-wj: dictionaries')
         const t = ctx.locale.bind(NS)
@@ -696,18 +665,12 @@ window.__ModuleLoader__.load({
           }
         }
 
-        // Servers managed by a companion package live outside the Host's own MCP registry and answer
-        // through `mcpClientStatus/list`. It is optional, so a Host without it simply shows fewer rows.
-        const listMcpStatus = async () => {
-          const api = namespace('mcpClientStatus')
-          if (!api || typeof api.list !== 'function') return undefined
-          try { return unwrap(await api.list(), 'mcpClientStatus/list') } catch (_error) { return undefined }
-        }
-
+        // No `mcpClientStatus/list` probe lives here: the MCP settings bundle owns MCP server state
+        // and its page, and reading that remote from two pages is what made the two views conflict.
         ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
           name: 'settings.plugins.tab', id: 'wj-registration-inventory', order: 20,
           label: () => t('tab'), locale: NS,
-          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, listMcpStatus, readSessionId: activeSessionId, watchSessions }),
+          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, readSessionId: activeSessionId, watchSessions }),
         }, ManagerPage))
       },
     }

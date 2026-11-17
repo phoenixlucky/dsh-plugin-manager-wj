@@ -132,7 +132,6 @@ const configView = {
  * options.sessionsById   – retained session rows the client store starts with
  * options.skillNamespaces – registry keys exposing the catalog (`remote.<name>`)
  * options.bareHost        – no remotes and no settings forms, i.e. a Host that mounts neither
- * options.mcpStatus       – rows returned by the optional `mcpClientStatus/list` Remote
  */
 function createPage(options = {}) {
   let bundle
@@ -204,6 +203,8 @@ function createPage(options = {}) {
     ok: true,
     value: {
       toolRegistrations: [{ name: 'read_file', scope: 'global', owner: { moduleName: 'fs-plugin', entryId: 'fs' } }],
+      // The Host registry still reports MCP clients; this page must not render them, because the
+      // MCP settings bundle already owns that list.
       mcpClients: [{ serverName: 'chrome', state: 'connected', owner: { moduleName: 'mcp-plugin', entryId: 'mcp' }, toolNames: ['take_screenshot', 'navigate'] }],
     },
   })
@@ -211,16 +212,16 @@ function createPage(options = {}) {
   const plugin = bundle.factory(name => name === 'react' ? runtime.React : undefined)
   let registered
   // Cordis exposes a service both as `ctx.remote` and as `ctx.get('remote')`; each remote namespace
-  // is also its own `remote.<name>` service, which is what the client probes first.
-  const mcpStatusRemote = options.mcpStatus ? { list: async () => ({ ok: true, value: options.mcpStatus }) } : undefined
-  const remotes = { pluginInventory: { list }, pluginManager: manager, mcpClientStatus: mcpStatusRemote }
+  // is also its own `remote.<name>` service, which is what the client probes first. `mcpClientStatus`
+  // is deliberately absent: MCP server state belongs to the Host's MCP settings bundle, and this
+  // page must not read it or render a competing server list.
+  const remotes = { pluginInventory: { list }, pluginManager: manager }
   const ctx = {
     locale: { register() {}, bind() { return t } },
     remote: options.bareHost ? undefined : remotes,
     get(name) {
       if (options.bareHost) return undefined
       if (name === 'remote') return remotes
-      if (name === 'remote.mcpClientStatus') return mcpStatusRemote
       if (name === 'configForms') return forms
       if (name === 'sessions') return sessions
       for (const namespace of options.skillNamespaces ?? ['skills']) {
@@ -278,7 +279,7 @@ function createPage(options = {}) {
   }
 }
 
-test('the management page switches between plugin, configuration, skill and MCP views', async () => {
+test('the management page switches between plugin, configuration, skill and tool views', async () => {
   const page = createPage({ sessionsById: { 'sess-1': { id: 'sess-1', cwd: 'E:/home', retainedBy: { mainView: 1 } } } })
   await page.settle()
 
@@ -290,7 +291,7 @@ test('the management page switches between plugin, configuration, skill and MCP 
   assert.equal(typeof page.definition.inject().readSessionId, 'function')
   assert.equal(typeof page.definition.inject().watchSessions, 'function')
 
-  assert.deepEqual(page.tabs().map(tab => tab.props.id), ['wj-tab-plugins', 'wj-tab-config', 'wj-tab-skill', 'wj-tab-mcp'])
+  assert.deepEqual(page.tabs().map(tab => tab.props.id), ['wj-tab-plugins', 'wj-tab-config', 'wj-tab-skill', 'wj-tab-tools'])
   assert.deepEqual(page.tabs().map(tab => tab.props['aria-selected']), ['true', 'false', 'false', 'false'])
   assert.equal(page.panelById('wj-panel-config'), undefined)
   assert.ok(page.text().includes('Plugin One'))
@@ -313,15 +314,17 @@ test('the management page switches between plugin, configuration, skill and MCP 
   assert.ok(textOf(page.panelById('wj-panel-skill')).includes('skillUserOnly'))
   assert.ok(textOf(page.panelById('wj-panel-skill')).includes('E:/skills/office-xlsx/SKILL.md'))
 
-  await page.clickTab('wj-tab-mcp')
-  const mcp = textOf(page.panelById('wj-panel-mcp'))
-  assert.ok(mcp.includes('chrome') && mcp.includes('take_screenshot'))
-  assert.ok(mcp.includes('read_file') && mcp.includes('fs-plugin'))
+  await page.clickTab('wj-tab-tools')
+  const tools = textOf(page.panelById('wj-panel-tools'))
+  assert.ok(tools.includes('read_file') && tools.includes('fs-plugin'), 'tool ownership should render')
+  // The MCP page owns MCP servers; a second list here is what collided with it.
+  assert.ok(!tools.includes('chrome'), 'MCP servers must not be listed by this page')
+  assert.ok(!tools.includes('take_screenshot'), 'MCP tool names must not be listed by this page')
   assert.equal(find(page.tree, node => node.props?.role === 'tabpanel').length, 4)
 
   page.search('office')
   await page.settle()
-  assert.ok(textOf(page.panelById('wj-panel-mcp')).includes('noMatches'))
+  assert.ok(textOf(page.panelById('wj-panel-tools')).includes('noMatches'))
 
   await page.clickTab('wj-tab-plugins')
   assert.ok(!textOf(page.panelById('wj-panel-plugins')).includes('Plugin One'))
@@ -387,27 +390,18 @@ test('the tab registers on a Host that mounts no optional services', async () =>
   assert.ok(find(page.tree, node => node.type === 'button' && textOf(node) === 'retry').length >= 1, 'the failure should offer a retry')
 })
 
-test('MCP rows merge the optional client-status Remote by server name', async () => {
-  // Servers owned by a companion package are absent from the Host's own registry, so the view
-  // merges both sources instead of showing only what the Host composes.
-  const page = createPage({
-    sessionsById: {},
-    mcpStatus: [
-      { serverName: 'chrome', state: 'connecting', transport: 'websocket', source: 'companion', toolCount: 2, tools: [{ name: 'take_screenshot' }] },
-      { serverName: 'wdk-mcp', state: 'connected', transport: 'stdio', source: 'companion', toolCount: 2, tools: [{ name: 'alpha' }, { name: 'beta' }] },
-    ],
-  })
+test('the page exposes tool ownership without competing with the MCP settings page', async () => {
+  // @tinyforge/dsh-mcp-settings owns the MCP page: it registers `settings.section` id `mcp` and
+  // reads `mcpClientStatus/list` itself. This tab keeps only the plugin-side diagnostic — which
+  // plugin registered a tool — and reads no MCP client remote, so the two pages cannot drift apart.
+  const page = createPage({ sessionsById: {} })
   await page.settle()
-  await page.clickTab('wj-tab-mcp')
-  const mcp = textOf(page.panelById('wj-panel-mcp'))
 
-  // A status-only server still shows up, with the fields the Host registry does not carry.
-  assert.ok(mcp.includes('wdk-mcp'), 'status-only servers should be listed')
-  assert.ok(mcp.includes('stdio') && mcp.includes('companion'), 'transport and source should render')
-  assert.ok(mcp.includes('alpha') && mcp.includes('beta'), 'status tool names should render')
-
-  // The Host registry wins for a server both sources report.
-  assert.ok(mcp.includes('chrome'))
-  assert.ok(mcp.includes('websocket'), 'status transport survives the merge')
-  assert.ok(mcp.includes('take_screenshot') && mcp.includes('navigate'), 'inventory tool names win')
+  assert.equal(page.definition.inject().listMcpStatus, undefined, 'the MCP status remote must not be read')
+  await page.clickTab('wj-tab-tools')
+  const tools = textOf(page.panelById('wj-panel-tools'))
+  assert.ok(tools.includes('read_file'), 'tool registrations should still render')
+  assert.ok(tools.includes('fs-plugin'), 'the owning plugin should render')
+  assert.ok(tools.includes('global'), 'the tool scope should render')
+  assert.ok(!tools.includes('chrome'), 'MCP clients stay on the MCP settings page')
 })

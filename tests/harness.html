@@ -252,7 +252,7 @@
     try { localStorage.removeItem('dsh-plugin-manager-wj/tab') } catch (_error) { /* storage unavailable */ }
 
     const page = createPage({ sessionsById: { 'sess-1': { id: 'sess-1', cwd: 'E:/home', retainedBy: { mainView: 1 } } } })
-    check('inject declares the plugin remotes', JSON.stringify(page.module.inject) === JSON.stringify(['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.pluginManager', 'configForms']), JSON.stringify(page.module.inject))
+    check('inject declares only core client services', JSON.stringify(page.module.inject) === JSON.stringify(['slots', 'locale']), JSON.stringify(page.module.inject))
     check('tab registered into settings.plugins.tab', page.registered?.definition?.name === 'settings.plugins.tab')
     check('definition exposes the skill bridge', typeof page.registered.definition.inject().loadSkills === 'function'
       && typeof page.registered.definition.inject().readSessionId === 'function'
@@ -260,7 +260,7 @@
     await page.settle()
 
     check('four switchable tabs', page.tabs().length === 4, JSON.stringify(page.tabs().map(tab => tab.props.id)))
-    check('tab ids follow the view ids', JSON.stringify(page.tabs().map(tab => tab.props.id)) === JSON.stringify(['wj-tab-plugins', 'wj-tab-config', 'wj-tab-skill', 'wj-tab-mcp']))
+    check('tab ids follow the view ids', JSON.stringify(page.tabs().map(tab => tab.props.id)) === JSON.stringify(['wj-tab-plugins', 'wj-tab-config', 'wj-tab-skill', 'wj-tab-tools']))
     check('plugins tab starts selected', page.tabs()[0].props['aria-selected'] === 'true' && page.tabs()[1].props['aria-selected'] === 'false')
     check('only the visited panel is mounted', findBy(page.tree, node => node.props?.role === 'tabpanel').length === 1)
     check('plugins view lists plugin rows', page.text().includes('Plugin One') && page.text().includes('plugin-two'))
@@ -280,15 +280,16 @@
     check('skill panel marks user-only entries', page.text().includes('skillUserOnly') && page.text().includes('skillModelInvocable'))
     check('skill panel shows the instruction file', page.text().includes('E:/skills/office-xlsx/SKILL.md'))
 
-    await page.clickTab('wj-tab-mcp')
-    check('mcp panel lists the server and its tools', page.text().includes('chrome') && page.text().includes('take_screenshot'))
-    check('mcp panel lists tool registrations', page.text().includes('read_file') && page.text().includes('fs-plugin'))
+    await page.clickTab('wj-tab-tools')
+    check('tools panel lists tool registrations', page.text().includes('read_file') && page.text().includes('fs-plugin'))
+    // The MCP settings bundle owns MCP servers; this page must not render a competing list.
+    check('tools panel lists no MCP servers', !page.text().includes('chrome') && !page.text().includes('take_screenshot'))
     check('all four panels stay mounted after visiting', findBy(page.tree, node => node.props?.role === 'tabpanel').length === 4)
 
     const search = findBy(page.tree, node => node.props?.type === 'search')[0]
     search.props.onChange({ target: { value: 'office' } })
     await page.settle()
-    check('search filters the active view', textOf(page.panelById('wj-panel-mcp')).includes('noMatches') && !textOf(page.panelById('wj-panel-mcp')).includes('read_file'))
+    check('search filters the active view', textOf(page.panelById('wj-panel-tools')).includes('noMatches') && !textOf(page.panelById('wj-panel-tools')).includes('read_file'))
 
     await page.clickTab('wj-tab-plugins')
     check('search reaches the plugins view', !textOf(page.panelById('wj-panel-plugins')).includes('Plugin One'))
