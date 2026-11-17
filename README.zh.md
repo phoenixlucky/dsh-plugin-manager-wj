@@ -30,7 +30,7 @@
 
 需要提供插件管理 Remote、设置表单和运行时清单的 Harness Host。较旧 Host 可能只能查看清单，或显示诊断不可用；升级 Harness 后才能执行管理操作。只有当前 Profile 可寻址的插件可以启停。
 
-Skill 视图需要两个可选客户端服务：skills Remote 与一个存活会话。两者都在调用时通过 `ctx.get` 读取，不写进 `inject`——把可选服务写进 `inject` 会让客户端插件在缺少该服务的 Host 上一直处于 pending 状态，整个标签页都不会出现。因此该视图只会降级而不会消失：没有 Remote 时给出说明；没有会话时进入等待状态，一旦出现会话或活动会话切换，就自动加载目录，无需手动刷新。命名空间是探测出来的而不是写死的（依次尝试 `skills`、`skill`、`skillCatalog`，再扫描任何含 “skill” 的已注册 `remote.*`），所以 Host 改名也不需要改代码。Skill 在这里是只读的，界面不会加载 skill 正文。此界面不安装或卸载包、不编辑凭据，也不运行任意修复命令。
+标签页只硬注入两个核心客户端服务：`slots` 与 `locale`。其余服务 —— `pluginInventory`、`pluginManager` 两个 remote、`configForms`、skills Remote 与存活会话 —— 都在调用时通过 `ctx.get` 解析，而不写进 `inject`：把可选服务写进 `inject` 会让客户端插件在缺少该服务的 Host 上一直处于 pending 状态，而 pending 的插件不注册任何标签页，设置页面会变成完全没有插件视图，而不是降级显示。因此 Skill 视图只会降级而不会消失：没有 Remote 时给出说明；没有会话时进入等待状态，一旦出现会话或活动会话切换，就自动加载目录，无需手动刷新。命名空间是探测出来的而不是写死的（依次尝试 `skills`、`skill`、`skillCatalog`，再扫描任何含 “skill” 的已注册 `remote.*`），所以 Host 改名也不需要改代码。Skill 在这里是只读的，界面不会加载 skill 正文。此界面不安装或卸载包、不编辑凭据，也不运行任意修复命令。
 
 ## 安装
 
@@ -49,11 +49,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## 发布
 
 ```sh
-npm test                        # node --test：4 个视图测试 + 3 个 patch 检查
+npm test                        # node --test：11 项检查（视图、inject 契约、patch 结构）
 npm publish --access public     # 发布到 registry.npmjs.org
 ```
 
-包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.3.1 && git push --tags`），让 GitHub 历史与 registry 版本对应。
+包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.3.2 && git push --tags`），让 GitHub 历史与 registry 版本对应。
 
 ## 开发
 
@@ -62,6 +62,7 @@ npm publish --access public     # 发布到 registry.npmjs.org
 - `node --test` 运行 `tests/client.test.js` 的行为检查：四个视图渲染并可切换、访问过的视图保持挂载、搜索与启停作用于当前视图、密钥配置对象不会进入编辑器、打开会话后无需刷新即加载 Skill 目录、改名后的 skills 命名空间能被发现，以及瞬时目录失败可就地重试恢复。
 - `node --check client.js` 检查浏览器 bundle 语法。
 - `tests/patch.test.js` 解析 `cordis.patch.yml`，确保没有裸标量以 YAML 保留字符开头 —— 带 scope 的包名必须保持加引号，否则 Host 会拒绝该 bundle patch。
+- `tests/inject.test.js` 把插件的 `inject` 固定为仅核心服务，这样一旦有人重新硬注入可选 remote，测试就会失败，而不是在某些 Host 上悄悄把设置页清空。
 - `tests/harness.html` 在浏览器中用测试夹具挂载真实 `client.js`，不依赖 Node 也能断言同一批行为；直接从磁盘打开并读取 JSON 报告。
 - `tests/parse-check.html` 是最小的浏览器冒烟页：确认 `client.js` 能解析并注册 `settings.plugins.tab`。
 

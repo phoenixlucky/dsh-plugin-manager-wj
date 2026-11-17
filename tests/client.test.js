@@ -131,6 +131,7 @@ const configView = {
 /**
  * options.sessionsById   – retained session rows the client store starts with
  * options.skillNamespaces – registry keys exposing the catalog (`remote.<name>`)
+ * options.bareHost        – no remotes and no settings forms, i.e. a Host that mounts neither
  */
 function createPage(options = {}) {
   let bundle
@@ -208,10 +209,15 @@ function createPage(options = {}) {
 
   const plugin = bundle.factory(name => name === 'react' ? runtime.React : undefined)
   let registered
+  // Cordis exposes a service both as `ctx.remote` and as `ctx.get('remote')`; the client reads the
+  // remotes through `ctx.get`, so the stub has to answer both.
+  const remotes = { pluginInventory: { list }, pluginManager: manager }
   const ctx = {
     locale: { register() {}, bind() { return t } },
-    remote: { pluginInventory: { list }, pluginManager: manager },
+    remote: options.bareHost ? undefined : remotes,
     get(name) {
+      if (options.bareHost) return undefined
+      if (name === 'remote') return remotes
       if (name === 'configForms') return forms
       if (name === 'sessions') return sessions
       for (const namespace of options.skillNamespaces ?? ['skills']) {
@@ -274,7 +280,9 @@ test('the management page switches between plugin, configuration, skill and MCP 
   await page.settle()
 
   // client.js is evaluated in a separate VM context, so its arrays have a different prototype.
-  assert.deepEqual(Array.from(page.plugin.inject), ['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.pluginManager', 'configForms'])
+  // Only core services are hard-injected; remotes and settings forms stay optional so a Host that
+  // never mounts one still gets the tab instead of a permanently pending plugin.
+  assert.deepEqual(Array.from(page.plugin.inject), ['slots', 'locale'])
   assert.equal(typeof page.definition.inject().loadSkills, 'function')
   assert.equal(typeof page.definition.inject().readSessionId, 'function')
   assert.equal(typeof page.definition.inject().watchSessions, 'function')
@@ -360,4 +368,18 @@ test('a transient catalog failure recovers from the view', async () => {
   await page.settle()
   assert.deepEqual(page.skillsCalls, ['sess-4', 'sess-4'])
   assert.ok(page.text().includes('/office-xlsx'))
+})
+
+test('the tab registers on a Host that mounts no optional services', async () => {
+  // Hard-injecting remote.pluginInventory, remote.pluginManager or configForms left the plugin
+  // pending on a Host that never mounts one, and a pending plugin registers no slot entry at all —
+  // the settings page then showed no plugin views. With only core services injected, the entry
+  // still registers and the page degrades to its retryable error state.
+  const page = createPage({ sessionsById: {}, bareHost: true })
+  await page.settle()
+
+  assert.equal(page.definition.name, 'settings.plugins.tab')
+  assert.equal(page.definition.id, 'wj-registration-inventory')
+  assert.ok(page.text().includes('error'), 'the page should report the unreadable inventory')
+  assert.ok(find(page.tree, node => node.type === 'button' && textOf(node) === 'retry').length >= 1, 'the failure should offer a retry')
 })

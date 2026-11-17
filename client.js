@@ -542,7 +542,11 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.pluginManager', 'configForms'],
+      // Only core client services are hard-injected. Remote namespaces and settings forms are
+      // optional per deployment, so they are resolved through `ctx.get` below: listing one of
+      // them here leaves the plugin pending on a Host that never mounts it, and a pending plugin
+      // registers no tab at all — the settings page then reports no plugin views.
+      inject: ['slots', 'locale'],
       apply(ctx) {
         const zh = {
           tab: '插件管理', search: '搜索当前视图的插件、配置、Skill 或 MCP', refresh: '刷新', loading: '正在读取 Host 状态…', loadingShort: '读取中…',
@@ -594,14 +598,6 @@ window.__ModuleLoader__.load({
         }
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'plugin-manager-wj: dictionaries')
         const t = ctx.locale.bind(NS)
-        const list = async () => unwrap(await ctx.remote.pluginInventory.list(), 'pluginInventory.list')
-        const manager = ctx.remote.pluginManager
-        const forms = ctx.get('configForms')
-
-        // The skill catalog is session-scoped (`skills/list`) and optional. Both services are read
-        // through `ctx.get` rather than `inject`: a Client plugin that lists an optional service in
-        // `inject` stays pending on a Host without it, which would take the whole tab down. Names are
-        // probed instead of hardcoded so a differently named skills namespace needs no code change.
         const service = name => {
           try { return ctx.get(name) } catch (_error) { return undefined }
         }
@@ -610,6 +606,17 @@ window.__ModuleLoader__.load({
           if (direct) return direct
           try { return ctx.get('remote')?.[name] } catch (_error) { return undefined }
         }
+        const list = async () => {
+          const inventory = namespace('pluginInventory')
+          if (!inventory || typeof inventory.list !== 'function') throw new Error('pluginInventory.list: unavailable')
+          return unwrap(await inventory.list(), 'pluginInventory.list')
+        }
+        const forms = service('configForms')
+
+        // The skill catalog is session-scoped (`skills/list`) and optional. Both services are read
+        // through `ctx.get` rather than `inject`: a Client plugin that lists an optional service in
+        // `inject` stays pending on a Host without it, which would take the whole tab down. Names are
+        // probed instead of hardcoded so a differently named skills namespace needs no code change.
         const SKILL_NAMESPACE_NAMES = ['skills', 'skill', 'skillCatalog']
         const skillsRemote = () => {
           for (const name of SKILL_NAMESPACE_NAMES) {
@@ -655,7 +662,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
           name: 'settings.plugins.tab', id: 'wj-registration-inventory', order: 20,
           label: () => t('tab'), locale: NS,
-          inject: () => ({ list, manager, forms, loadSkills, readSessionId: activeSessionId, watchSessions }),
+          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, readSessionId: activeSessionId, watchSessions }),
         }, ManagerPage))
       },
     }

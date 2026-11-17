@@ -30,7 +30,7 @@ Configuration fields are discovered from each Host-provided schema. Secret field
 
 Use a Harness Host that exposes the plugin-management Remote, settings forms, and runtime inventory. Older Hosts may show inventory only or report diagnostics as unavailable; upgrade Harness to use management actions. Only plugins addressable through the active profile can be toggled.
 
-The Skills view needs two optional client services: the skills Remote and a live session. Both are read through `ctx.get` at call time rather than declared in `inject`, because a Client plugin that lists an optional service in `inject` stays pending on a Host without it — which would take the whole tab down. The view therefore degrades instead of disappearing: no Remote means an explanatory message, and no session means a waiting state that loads the catalog by itself as soon as a session appears or the active session changes, with no manual refresh. The namespace is discovered rather than hardcoded (`skills`, `skill`, `skillCatalog`, then any registered `remote.*` name containing "skill"), so a Host that renames it needs no code change. Skills are read-only here; the UI never loads skill bodies. The UI does not install/remove packages, edit credentials, or run arbitrary repair commands.
+The tab hard-injects only two core client services, `slots` and `locale`. Everything else — the `pluginInventory` and `pluginManager` remotes, `configForms`, the skills Remote and the live session — is resolved through `ctx.get` at call time rather than declared in `inject`, because a Client plugin that lists an optional service in `inject` stays pending on a Host without it, and a pending plugin registers no tab at all: the settings page then shows no plugin views instead of a degraded one. The Skills view therefore degrades rather than disappearing: no Remote means an explanatory message, and no session means a waiting state that loads the catalog by itself as soon as a session appears or the active session changes, with no manual refresh. The namespace is discovered rather than hardcoded (`skills`, `skill`, `skillCatalog`, then any registered `remote.*` name containing "skill"), so a Host that renames it needs no code change. Skills are read-only here; the UI never loads skill bodies. The UI does not install/remove packages, edit credentials, or run arbitrary repair commands.
 
 ## Install
 
@@ -49,11 +49,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## Release
 
 ```sh
-npm test                        # node --test: 4 view tests + 3 patch checks
+npm test                        # node --test: 11 checks (views, inject contract, patch shape)
 npm publish --access public     # writes to registry.npmjs.org
 ```
 
-The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.3.1 && git push --tags`) so the GitHub history matches the registry.
+The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.3.2 && git push --tags`) so the GitHub history matches the registry.
 
 ## Development
 
@@ -62,6 +62,7 @@ The package is an ES module. `index.js` is the Host entry point and `client.js` 
 - `node --test` runs the bundle behavior checks in `tests/client.test.js`: the four views render and switch, the visited views stay mounted, search and enable/disable act on the active view, a secret configuration object stays out of the editor, opening a session loads the skill catalog without a refresh, a renamed skills namespace is discovered, and a transient catalog failure recovers from the inline retry.
 - `node --check client.js` checks the browser bundle syntax.
 - `tests/patch.test.js` parses `cordis.patch.yml` and asserts no plain scalar starts with a reserved YAML indicator — the scoped package name must stay quoted, or the Host rejects the bundle patch.
+- `tests/inject.test.js` pins the plugin's `inject` list to the core services only, so a regressed hard-injection of an optional remote fails the suite instead of silently emptying the settings page on some Hosts.
 - `tests/harness.html` mounts the real `client.js` against fixtures in a browser and asserts the same behavior without Node; open it directly from disk and read the JSON report.
 - `tests/parse-check.html` is a minimal browser smoke page: it confirms `client.js` parses and registers `settings.plugins.tab`.
 
