@@ -1,0 +1,55 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>client.js parse and register check</title>
+<style>
+  body { margin: 0; padding: 24px 28px; background: Canvas; color: CanvasText; font: 14px/1.6 system-ui, sans-serif }
+  h1 { margin: 0 0 8px; font-size: 16px }
+  p { margin: 0; color: GrayText }
+  #status { margin: 14px 0 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); border-radius: 10px; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap }
+  .ok { border-color: color-mix(in srgb, #2f8a3f 40%, Canvas); background: color-mix(in srgb, #2f8a3f 8%, Canvas) }
+  .fail { border-color: color-mix(in srgb, #c43d3d 40%, Canvas); background: color-mix(in srgb, #c43d3d 8%, Canvas) }
+</style>
+<h1>client.js parse and register check</h1>
+<p>Open this page in a browser to confirm <code>client.js</code> parses and registers its module bundle without Node.</p>
+<div id="status">loading…</div>
+<script>
+  const status = document.getElementById('status')
+  const lines = []
+  const settle = () => {
+    status.className = window.__bundle ? 'ok' : 'fail'
+    status.textContent = lines.join('\n') || (window.__bundle ? 'ok' : 'no result')
+  }
+  window.__ModuleLoader__ = {
+    load(bundle) {
+      window.__bundle = bundle
+      const module = bundle.factory(name => name === 'react' ? { createElement() {}, Fragment: Symbol('Fragment'), useState() {}, useEffect() {} } : undefined)
+      lines.push(`ok   bundle registered: ${bundle.id}`)
+      lines.push(`ok   inject: ${module.inject.join(', ')}`)
+      try {
+        let registered = null
+        module.apply({
+          locale: { register() {}, bind: () => key => key },
+          remote: { pluginInventory: { list: async () => ({ ok: true, value: {} }) }, pluginManager: {} },
+          get: () => undefined,
+          effect(run) { run() },
+          slots: { inject(_name, register) { register() }, register(definition) { registered = definition; return () => {} } },
+        })
+        lines.push(`ok   slot: ${registered?.name} (${registered?.id})`)
+      } catch (error) {
+        lines.push(`FAIL apply: ${error?.message ?? error}`)
+      }
+      settle()
+    },
+  }
+  window.addEventListener('error', event => {
+    lines.push(`FAIL ${event.message}`)
+    settle()
+  })
+  window.addEventListener('load', () => {
+    if (!window.__bundle) {
+      lines.push('FAIL client.js did not register a bundle')
+      settle()
+    }
+  })
+</script>
+<script src="../client.js"></script>

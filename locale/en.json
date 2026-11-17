@@ -3,15 +3,22 @@
     "title": "WJ Plugin Management"
   },
   "tab": "Plugin management",
-  "search": "Search plugins, findings, tools or MCP",
+  "views": {
+    "label": "Management views",
+    "plugins": "Plugins",
+    "config": "Configuration",
+    "skill": "Skills",
+    "mcp": "MCP"
+  },
+  "search": "Search the current view for plugins, settings, skills or MCP",
   "refresh": "Refresh",
-  "loading": "Reading runtime registrations…",
-  "error": "The registration inventory could not be read.",
+  "loading": "Reading runtime state…",
+  "error": "The runtime inventory could not be read.",
   "retry": "Retry",
   "empty": "There are no plugin, tool or MCP records yet.",
   "unsupported": "This Harness Host does not provide plugin management and runtime inventory. Upgrade Harness to manage plugins.",
   "tools": "Tool registrations",
-  "mcp": "MCP servers",
+  "mcp": "MCP clients",
   "owner": "Owning plugin",
   "scope": "Scope",
   "global": "Global",
@@ -19,5 +26,10 @@
   "conditional": "Conditional",
   "unconditional": "Always registered",
   "serverState": "Connection state",
-  "toolNames": "Tool names"
+  "toolNames": "Tool names",
+  "skills": "Skill catalog",
+  "skillUnsupported": "This Host does not expose the skills interface; the catalog is unavailable.",
+  "skillNoSession": "The catalog is resolved per session; open a session and refresh.",
+  "skillModelInvocable": "Model-invocable",
+  "skillUserOnly": "User-only"
 }

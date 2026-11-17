@@ -1,0 +1,344 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>plugin-manager-wj UI harness</title>
+<pre id="out">pending</pre>
+<script>window.__ModuleLoader__ = { load(bundle) { window.__bundle = bundle } }</script>
+<script src="../client.js"></script>
+<script>
+;(async () => {
+  const lines = []
+  const failures = []
+  const check = (name, condition, detail) => {
+    if (condition) lines.push(`ok ${name}`)
+    else { failures.push(`${name}${detail === undefined ? '' : ` :: ${detail}`}`); lines.push(`FAIL ${name}${detail === undefined ? '' : ` :: ${detail}`}`) }
+  }
+  const report = () => {
+    document.getElementById('out').textContent = JSON.stringify({ passed: lines.filter(line => line.startsWith('ok ')).length, failed: failures.length, lines, failures }, null, 2)
+  }
+
+  const element = (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) })
+  const Fragment = Symbol('Fragment')
+  const sameDeps = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => Object.is(value, b[index]))
+  const findBy = (node, predicate, matches = []) => {
+    if (Array.isArray(node)) { for (const child of node) findBy(child, predicate, matches) }
+    else if (node && typeof node === 'object') {
+      if (predicate(node)) matches.push(node)
+      findBy(node.children, predicate, matches)
+    }
+    return matches
+  }
+  const textOf = node => {
+    if (node === null || node === undefined || node === false) return ''
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(textOf).join(' ')
+    return textOf(node.children)
+  }
+
+  /** Fresh hook runtime per mounted page: per-component state cells plus deferred effects. */
+  function createRuntime() {
+    const stores = new Map()
+    const queued = []
+    let hookStore
+    let dirty = false
+    const React = {
+      Fragment,
+      createElement: element,
+      useState(initial) {
+        const store = hookStore
+        const index = store.index++
+        if (!store.cells[index]) store.cells[index] = { value: typeof initial === 'function' ? initial() : initial }
+        const cell = store.cells[index]
+        return [cell.value, next => {
+          const value = typeof next === 'function' ? next(cell.value) : next
+          if (Object.is(value, cell.value)) return
+          cell.value = value
+          dirty = true
+        }]
+      },
+      useEffect(fn, deps) {
+        const store = hookStore
+        const index = store.index++
+        const cell = store.cells[index] ?? (store.cells[index] = {})
+        const changed = !cell.initialized || !Array.isArray(deps) || !cell.deps || !sameDeps(cell.deps, deps)
+        cell.deps = Array.isArray(deps) ? [...deps] : undefined
+        cell.fn = fn
+        if (changed) { cell.initialized = true; queued.push(cell) }
+      },
+    }
+    const storeFor = path => {
+      let store = stores.get(path)
+      if (!store) { store = { path, cells: [], index: 0 }; stores.set(path, store) }
+      return store
+    }
+    const renderNode = (node, path) => {
+      if (node === null || node === undefined || typeof node === 'boolean') return null
+      if (typeof node === 'string' || typeof node === 'number') return node
+      if (Array.isArray(node)) return node.map((child, index) => renderNode(child, `${path}.${index}`))
+      const { type, props, children } = node
+      if (type === Fragment) return renderNode(children, path)
+      if (typeof type === 'function') {
+        const store = storeFor(path)
+        const previous = hookStore
+        hookStore = store
+        store.index = 0
+        let output
+        try { output = type({ ...props, children: children.length === 0 ? undefined : children.length === 1 ? children[0] : children }) } finally { hookStore = previous }
+        return renderNode(output, `${path}>${type.name}`)
+      }
+      return { type, props, children: children.map((child, index) => renderNode(child, `${path}.${index}`)) }
+    }
+    return {
+      React,
+      render(root) {
+        dirty = false
+        const tree = renderNode(root, 'root')
+        const batch = queued.splice(0)
+        for (const cell of batch) {
+          if (typeof cell.cleanup === 'function') cell.cleanup()
+          const cleanup = cell.fn()
+          cell.cleanup = typeof cleanup === 'function' ? cleanup : undefined
+        }
+        return tree
+      },
+      get dirty() { return dirty },
+    }
+  }
+
+  const dictionary = {}
+  const t = key => dictionary[key] ?? key
+  const configView = {
+    ns: 'secret-plugin',
+    schema: {
+      uid: 'root',
+      refs: {
+        root: { type: 'object', dict: { credentials: 'credentials', label: 'label' } },
+        credentials: { type: 'object', meta: { role: 'secret' }, dict: { token: 'token' } },
+        token: { type: 'string' },
+        label: { type: 'string' },
+      },
+    },
+    secrets: [{ path: ['credentials'], set: true }],
+    value: { credentials: {}, label: 'visible' },
+    revision: 2,
+    writable: true,
+  }
+
+  /**
+   * options.sessionsById  – retained session rows the client session store starts with
+   * options.skillNamespaces – registry keys that expose the catalog (`remote.<name>`)
+   */
+  function createPage(options = {}) {
+    const runtime = createRuntime()
+    const skillsCalls = []
+    const enabledWrites = []
+    const sessionListeners = new Set()
+    const sessionsById = { ...options.sessionsById }
+    let remainingFailures = options.skillFailures ?? 0
+
+    const forms = {
+      describe() { return { ensure: async () => {}, getSnapshot: () => ({ view: { namespaces: [configView] } }) } },
+      get() {
+        return {
+          subscribe: () => () => {},
+          getSnapshot: () => ({ status: 'ready', value: { credentials: {}, label: 'visible' }, revision: 2, writable: true }),
+          mutate: async () => true,
+        }
+      },
+    }
+    const sessions = {
+      list: {
+        getSnapshot: () => ({ byId: sessionsById }),
+        subscribe: listener => { sessionListeners.add(listener); return () => sessionListeners.delete(listener) },
+      },
+    }
+    const skills = {
+      list: async request => {
+        skillsCalls.push(request?.sessionId)
+        if (remainingFailures > 0) {
+          remainingFailures -= 1
+          throw new Error('skills unavailable')
+        }
+        return {
+          ok: true,
+          value: {
+            skills: [
+              { name: 'office-xlsx', description: 'Spreadsheet workflows', whenToUse: 'When editing a workbook', modelInvocable: true, path: 'E:/skills/office-xlsx/SKILL.md' },
+              { name: 'dsh-badge', description: 'Harness badge', modelInvocable: false },
+            ],
+          },
+        }
+      },
+    }
+    const manager = {
+      listPlugins: async () => ({
+        ok: true,
+        value: [
+          { entryId: 'plugin-one', moduleName: 'plugin-one', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Plugin One' } } },
+          { entryId: 'plugin-two', moduleName: 'plugin-two', enabled: false, fiberPhase: 'notRunning', meta: { title: { en: 'Plugin Two' } } },
+        ],
+      }),
+      getHealthSnapshot: async () => ({ ok: true, value: { pluginCount: 2, enabledCount: 1, findings: [{ id: 'f1', code: 'tool.duplicate-name', severity: 'error', affectedEntryIds: ['plugin-two'], remediationEntryIds: [], evidence: { name: 'read_file' } }] } }),
+      getConfigProvenance: async () => ({ ok: true, value: [{ fieldPath: ['label'], effective: { layer: 'profile', identity: 'web' }, shadowed: [] }] }),
+      setPluginEnabled: async (entryId, enabled) => { enabledWrites.push([entryId, enabled]); return { ok: true, value: { application: 'applied' } } },
+    }
+    const list = async () => ({
+      ok: true,
+      value: {
+        toolRegistrations: [{ name: 'read_file', scope: 'global', owner: { moduleName: 'fs-plugin', entryId: 'fs' } }],
+        mcpClients: [{ serverName: 'chrome', state: 'connected', owner: { moduleName: 'mcp-plugin', entryId: 'mcp' }, toolNames: ['take_screenshot', 'navigate'] }],
+      },
+    })
+
+    const module = window.__bundle.factory(name => name === 'react' ? runtime.React : undefined)
+    let registered
+    const ctx = {
+      locale: { register() {}, bind() { return t } },
+      remote: { pluginInventory: { list }, pluginManager: manager },
+      get(name) {
+        if (name === 'configForms') return forms
+        if (name === 'sessions') return sessions
+        for (const namespace of options.skillNamespaces ?? ['skills']) {
+          if (name === `remote.${namespace}`) return skills
+        }
+        return undefined
+      },
+      effect(run) { run() },
+      slots: { inject(_name, register) { register() }, register(definition, component) { registered = { definition, component }; return () => {} } },
+    }
+    module.apply(ctx)
+
+    const props = { ...registered.definition.inject(), t }
+    const root = element(registered.component, props)
+    let tree = runtime.render(root)
+    const settle = async () => {
+      for (let round = 0; round < 40; round++) {
+        await new Promise(resolve => setTimeout(resolve, 0))
+        if (!runtime.dirty) break
+        tree = runtime.render(root)
+      }
+    }
+    const tabs = () => findBy(tree, node => node.props?.role === 'tab')
+    const panelById = id => findBy(tree, node => node.props?.role === 'tabpanel' && node.props.id === id)[0]
+    const rerender = () => { tree = runtime.render(root) }
+    return {
+      registered,
+      module,
+      skillsCalls,
+      enabledWrites,
+      settle,
+      get tree() { return tree },
+      tabs,
+      panelById,
+      text: () => textOf(tree),
+      clickTab: async id => {
+        tabs().find(tab => tab.props.id === id).props.onClick()
+        rerender()
+        await settle()
+      },
+      search: value => {
+        findBy(tree, node => node.props?.type === 'search')[0].props.onChange({ target: { value } })
+        rerender()
+      },
+      openSession: id => {
+        sessionsById[id] = { id, cwd: 'E:/home', retainedBy: { mainView: 1 } }
+        for (const listener of sessionListeners) listener()
+      },
+    }
+  }
+
+  try {
+    check('bundle registered', !!window.__bundle)
+    // Start from a clean selection so the run is deterministic across reloads.
+    try { localStorage.removeItem('dsh-plugin-manager-wj/tab') } catch (_error) { /* storage unavailable */ }
+
+    const page = createPage({ sessionsById: { 'sess-1': { id: 'sess-1', cwd: 'E:/home', retainedBy: { mainView: 1 } } } })
+    check('inject declares the plugin remotes', JSON.stringify(page.module.inject) === JSON.stringify(['slots', 'locale', 'remote', 'remote.pluginInventory', 'remote.pluginManager', 'configForms']), JSON.stringify(page.module.inject))
+    check('tab registered into settings.plugins.tab', page.registered?.definition?.name === 'settings.plugins.tab')
+    check('definition exposes the skill bridge', typeof page.registered.definition.inject().loadSkills === 'function'
+      && typeof page.registered.definition.inject().readSessionId === 'function'
+      && typeof page.registered.definition.inject().watchSessions === 'function')
+    await page.settle()
+
+    check('four switchable tabs', page.tabs().length === 4, JSON.stringify(page.tabs().map(tab => tab.props.id)))
+    check('tab ids follow the view ids', JSON.stringify(page.tabs().map(tab => tab.props.id)) === JSON.stringify(['wj-tab-plugins', 'wj-tab-config', 'wj-tab-skill', 'wj-tab-mcp']))
+    check('plugins tab starts selected', page.tabs()[0].props['aria-selected'] === 'true' && page.tabs()[1].props['aria-selected'] === 'false')
+    check('only the visited panel is mounted', findBy(page.tree, node => node.props?.role === 'tabpanel').length === 1)
+    check('plugins view lists plugin rows', page.text().includes('Plugin One') && page.text().includes('plugin-two'))
+    check('plugins view shows findings', page.text().includes('tool.duplicate-name') && page.text().includes('severityError'))
+    check('plugins view keeps enable/disable actions', findBy(page.tree, node => node.type === 'button' && textOf(node) === 'disable').length === 1)
+
+    await page.clickTab('wj-tab-config')
+    check('the selected view is remembered', (() => { try { return localStorage.getItem('dsh-plugin-manager-wj/tab') === 'config' } catch (_error) { return true } })())
+    check('config panel becomes visible', page.panelById('wj-panel-config')?.props.hidden === false)
+    check('plugins panel is hidden but mounted', page.panelById('wj-panel-plugins')?.props.hidden === true)
+    check('config panel hides secret fields', !textOf(page.panelById('wj-panel-config')).includes('credentials') && textOf(page.panelById('wj-panel-config')).includes('label'))
+    check('config panel shows provenance layer', textOf(page.panelById('wj-panel-config')).includes('profile'), textOf(page.panelById('wj-panel-config')))
+
+    await page.clickTab('wj-tab-skill')
+    check('skills/list receives the retained session id', JSON.stringify(page.skillsCalls) === JSON.stringify(['sess-1']), JSON.stringify(page.skillsCalls))
+    check('skill panel lists catalog rows', page.text().includes('/office-xlsx') && page.text().includes('Spreadsheet workflows'))
+    check('skill panel marks user-only entries', page.text().includes('skillUserOnly') && page.text().includes('skillModelInvocable'))
+    check('skill panel shows the instruction file', page.text().includes('E:/skills/office-xlsx/SKILL.md'))
+
+    await page.clickTab('wj-tab-mcp')
+    check('mcp panel lists the server and its tools', page.text().includes('chrome') && page.text().includes('take_screenshot'))
+    check('mcp panel lists tool registrations', page.text().includes('read_file') && page.text().includes('fs-plugin'))
+    check('all four panels stay mounted after visiting', findBy(page.tree, node => node.props?.role === 'tabpanel').length === 4)
+
+    const search = findBy(page.tree, node => node.props?.type === 'search')[0]
+    search.props.onChange({ target: { value: 'office' } })
+    await page.settle()
+    check('search filters the active view', textOf(page.panelById('wj-panel-mcp')).includes('noMatches') && !textOf(page.panelById('wj-panel-mcp')).includes('read_file'))
+
+    await page.clickTab('wj-tab-plugins')
+    check('search reaches the plugins view', !textOf(page.panelById('wj-panel-plugins')).includes('Plugin One'))
+    search.props.onChange({ target: { value: '' } })
+    await page.settle()
+    findBy(page.tree, node => node.type === 'button' && textOf(node) === 'disable')[0].props.onClick()
+    await page.settle()
+    check('toggle writes through pluginManager', JSON.stringify(page.enabledWrites) === JSON.stringify([['plugin-one', false]]), JSON.stringify(page.enabledWrites))
+    check('toggle surfaces the applied notice', page.text().includes('changeApplied'))
+
+    // A Host that requires a live session: no session at first, then one appears.
+    const late = createPage({ sessionsById: {} })
+    await late.settle()
+    await late.clickTab('wj-tab-skill')
+    check('no session shows the waiting state', late.text().includes('skillNoSession'))
+    check('no session performs no skills/list call', late.skillsCalls.length === 0, JSON.stringify(late.skillsCalls))
+    late.openSession('sess-2')
+    await late.settle()
+    check('opening a session loads the catalog without refresh', JSON.stringify(late.skillsCalls) === JSON.stringify(['sess-2']), JSON.stringify(late.skillsCalls))
+    check('the late catalog is rendered', late.text().includes('/office-xlsx'))
+
+    // A Host whose skills namespace is not literally named `skills`.
+    const renamed = createPage({
+      sessionsById: { 'sess-3': { id: 'sess-3', cwd: 'E:/home', retainedBy: { mainView: 1 } } },
+      skillNamespaces: ['skillCatalog'],
+    })
+    await renamed.settle()
+    await renamed.clickTab('wj-tab-skill')
+    check('a renamed skills namespace is discovered', renamed.text().includes('/office-xlsx'), renamed.text().slice(-120))
+    check('discovery calls the catalog with the session id', JSON.stringify(renamed.skillsCalls) === JSON.stringify(['sess-3']), JSON.stringify(renamed.skillsCalls))
+
+    // A transient catalog failure (for example a cold session) recovers from the view itself.
+    const flaky = createPage({
+      sessionsById: { 'sess-4': { id: 'sess-4', cwd: 'E:/home', retainedBy: { mainView: 1 } } },
+      skillFailures: 1,
+    })
+    await flaky.settle()
+    await flaky.clickTab('wj-tab-skill')
+    check('a catalog failure is reported', flaky.text().includes('skillError'), flaky.text().slice(-120))
+    const retryButton = findBy(flaky.tree, node => node.type === 'button' && textOf(node) === 'retry')[0]
+    check('the failure offers an inline retry', !!retryButton)
+    retryButton.props.onClick()
+    await flaky.settle()
+    check('the inline retry reloads the catalog', flaky.text().includes('/office-xlsx'), flaky.text().slice(-120))
+    check('the retry re-requested the catalog', JSON.stringify(flaky.skillsCalls) === JSON.stringify(['sess-4', 'sess-4']), JSON.stringify(flaky.skillsCalls))
+  } catch (error) {
+    failures.push(`threw: ${error?.stack ?? error}`)
+    lines.push(`FAIL threw: ${error?.message ?? error}`)
+  } finally {
+    report()
+  }
+})()
+</script>
