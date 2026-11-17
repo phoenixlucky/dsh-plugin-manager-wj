@@ -49,11 +49,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## 发布
 
 ```sh
-npm test                        # node --test：4 个行为测试
+npm test                        # node --test：4 个视图测试 + 3 个 patch 检查
 npm publish --access public     # 发布到 registry.npmjs.org
 ```
 
-包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.3.0 && git push --tags`），让 GitHub 历史与 registry 版本对应。
+包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.3.1 && git push --tags`），让 GitHub 历史与 registry 版本对应。
 
 ## 开发
 
@@ -61,6 +61,7 @@ npm publish --access public     # 发布到 registry.npmjs.org
 
 - `node --test` 运行 `tests/client.test.js` 的行为检查：四个视图渲染并可切换、访问过的视图保持挂载、搜索与启停作用于当前视图、密钥配置对象不会进入编辑器、打开会话后无需刷新即加载 Skill 目录、改名后的 skills 命名空间能被发现，以及瞬时目录失败可就地重试恢复。
 - `node --check client.js` 检查浏览器 bundle 语法。
+- `tests/patch.test.js` 解析 `cordis.patch.yml`，确保没有裸标量以 YAML 保留字符开头 —— 带 scope 的包名必须保持加引号，否则 Host 会拒绝该 bundle patch。
 - `tests/harness.html` 在浏览器中用测试夹具挂载真实 `client.js`，不依赖 Node 也能断言同一批行为；直接从磁盘打开并读取 JSON 报告。
 - `tests/parse-check.html` 是最小的浏览器冒烟页：确认 `client.js` 能解析并注册 `settings.plugins.tab`。
 

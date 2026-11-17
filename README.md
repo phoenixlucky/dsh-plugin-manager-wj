@@ -49,11 +49,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## Release
 
 ```sh
-npm test                        # node --test: 4 behavior tests
+npm test                        # node --test: 4 view tests + 3 patch checks
 npm publish --access public     # writes to registry.npmjs.org
 ```
 
-The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.3.0 && git push --tags`) so the GitHub history matches the registry.
+The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.3.1 && git push --tags`) so the GitHub history matches the registry.
 
 ## Development
 
@@ -61,6 +61,7 @@ The package is an ES module. `index.js` is the Host entry point and `client.js` 
 
 - `node --test` runs the bundle behavior checks in `tests/client.test.js`: the four views render and switch, the visited views stay mounted, search and enable/disable act on the active view, a secret configuration object stays out of the editor, opening a session loads the skill catalog without a refresh, a renamed skills namespace is discovered, and a transient catalog failure recovers from the inline retry.
 - `node --check client.js` checks the browser bundle syntax.
+- `tests/patch.test.js` parses `cordis.patch.yml` and asserts no plain scalar starts with a reserved YAML indicator — the scoped package name must stay quoted, or the Host rejects the bundle patch.
 - `tests/harness.html` mounts the real `client.js` against fixtures in a browser and asserts the same behavior without Node; open it directly from disk and read the JSON report.
 - `tests/parse-check.html` is a minimal browser smoke page: it confirms `client.js` parses and registers `settings.plugins.tab`.
 
