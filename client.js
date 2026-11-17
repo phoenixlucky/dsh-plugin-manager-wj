@@ -313,6 +313,7 @@ window.__ModuleLoader__.load({
             t(skill.modelInvocable ? 'skillModelInvocable' : 'skillUserOnly'))))
       return h('div', { style: styles.page },
         h('p', { style: styles.description }, t('skillIntro')),
+        h('p', { style: styles.message }, t('skillReadOnly')),
         h(Section, { id: 'skills', title: t('skillsTitle'), count: `${rows.length} ${t('items')}`, empty },
           rows.length ? h('ul', { style: styles.list }, rows.map(skillRow)) : null))
     }
@@ -326,7 +327,12 @@ window.__ModuleLoader__.load({
             h('div', { style: styles.rowHead },
               h('h3', { style: styles.rowTitle }, row.serverName),
               h('span', { style: { ...styles.badge, ...(row.state === 'connected' ? {} : styles.warning) } }, t(row.state))),
-            h('div', { style: styles.meta }, `${t('owner')}: ${owner(row)}`),
+            h('div', { style: styles.meta }, [
+              row.transport ? `${t('transport')}: ${row.transport}` : null,
+              row.source ? `${t('mcpSource')}: ${row.source}` : null,
+              row.toolCount === undefined ? null : `${t('toolCount')}: ${row.toolCount}`,
+              `${t('owner')}: ${owner(row)}`,
+            ].filter(Boolean).join(' · ')),
             row.toolNames?.length ? h('div', { style: styles.meta }, `${t('toolNames')}: ${row.toolNames.join(', ')}`) : null))) : null),
         h(Section, { id: 'tools', title: t('tools'), count: `${toolRows.length} ${t('items')}`, empty: t(needle ? 'noMatches' : 'noRows') },
           toolRows.length ? h('ul', { style: styles.list }, toolRows.map(row => h('li', { key: `${row.name}:${row.owner?.entryId ?? ''}`, style: styles.row },
@@ -335,7 +341,7 @@ window.__ModuleLoader__.load({
         inventory ? null : h('p', { style: styles.message }, t('inventoryUnavailable')))
     }
 
-    function ManagerPage({ list, manager, forms, loadSkills, readSessionId, watchSessions, t }) {
+    function ManagerPage({ list, manager, forms, loadSkills, listMcpStatus, readSessionId, watchSessions, t }) {
       const initialTab = readStoredTab()
       const [tab, setTab] = React.useState(initialTab)
       const [visited, setVisited] = React.useState([initialTab])
@@ -382,17 +388,19 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         let live = true
         Promise.resolve().then(async () => {
-          const [inventoryResult, pluginResult, healthResult, settingsResult] = await Promise.allSettled([
+          const [inventoryResult, pluginResult, healthResult, settingsResult, statusResult] = await Promise.allSettled([
             list(),
             manager?.listPlugins ? manager.listPlugins() : Promise.reject(new Error('unavailable')),
             manager?.getHealthSnapshot ? manager.getHealthSnapshot() : Promise.reject(new Error('unavailable')),
             forms?.describe ? forms.describe().ensure().then(() => forms.describe().getSnapshot()) : Promise.reject(new Error('unavailable')),
+            listMcpStatus ? listMcpStatus() : Promise.resolve(undefined),
           ])
           if (inventoryResult.status !== 'fulfilled') throw inventoryResult.reason
           const inventory = inventoryResult.value
           const plugins = pluginResult.status === 'fulfilled' ? unwrap(pluginResult.value, 'pluginManager.listPlugins') : []
           const health = healthResult.status === 'fulfilled' ? unwrap(healthResult.value, 'pluginManager.getHealthSnapshot') : undefined
           const settings = settingsResult.status === 'fulfilled' ? settingsResult.value.view : undefined
+          const mcpStatus = statusResult.status === 'fulfilled' ? statusResult.value : undefined
           const provenance = new Map()
           if (settings && manager?.getConfigProvenance) {
             await Promise.all(settings.namespaces.map(async view => {
@@ -407,12 +415,12 @@ window.__ModuleLoader__.load({
               }
             }))
           }
-          if (live) setState({ kind: 'ready', snapshot: { inventory, plugins, health, settings, provenance } })
+          if (live) setState({ kind: 'ready', snapshot: { inventory, plugins, health, settings, provenance, mcpStatus } })
         }).catch(() => {
           if (live) setState(previous => ({ kind: 'error', snapshot: previous.snapshot }))
         })
         return () => { live = false }
-      }, [list, manager, forms, revision])
+      }, [list, manager, forms, listMcpStatus, revision])
 
       const refresh = () => {
         setState(current => ({ kind: 'loading', snapshot: current.snapshot }))
@@ -489,13 +497,34 @@ window.__ModuleLoader__.load({
       const pluginRows = plugins.filter(row => matches([row.moduleName, row.entryId, row.meta?.title, row.meta?.description]))
       const findings = (health?.findings ?? []).filter(row => matches([row.id, row.code, row.evidence?.name, row.evidence?.serverName, row.evidence?.packageName]))
       const toolRows = (inventory?.toolRegistrations ?? []).filter(row => matches([row.name, row.owner?.moduleName, row.owner?.entryId]))
-      const mcpRows = (inventory?.mcpClients ?? []).filter(row => matches([row.serverName, row.state, row.owner?.moduleName, ...(row.toolNames ?? [])]))
+      // The Host's own registry only reports the MCP servers it composes itself. Servers managed by
+      // a companion package answer through `mcpClientStatus/list` instead, so both sources are merged
+      // by server name: transport, source and tool counts survive even when the Host registry is empty.
+      const mergedClients = new Map()
+      for (const row of current?.mcpStatus ?? []) {
+        mergedClients.set(row.serverName, {
+          serverName: row.serverName, state: row.state, transport: row.transport, source: row.source,
+          toolCount: row.toolCount, toolNames: (row.tools ?? []).map(tool => tool.name),
+        })
+      }
+      for (const row of inventory?.mcpClients ?? []) {
+        const previous = mergedClients.get(row.serverName) ?? {}
+        mergedClients.set(row.serverName, {
+          ...previous, ...row,
+          transport: row.transport ?? previous.transport,
+          source: row.source ?? previous.source,
+          toolCount: row.toolCount ?? previous.toolCount ?? row.toolNames?.length,
+          toolNames: row.toolNames ?? previous.toolNames,
+        })
+      }
+      const mcpRows = [...mergedClients.values()]
+        .filter(row => matches([row.serverName, row.state, row.transport, row.source, row.owner?.moduleName, ...(row.toolNames ?? [])]))
 
       const tabs = [
         { id: 'plugins', label: t('tabs.plugins'), count: plugins.length },
         { id: 'config', label: t('tabs.config'), count: settings?.namespaces?.length },
         { id: 'skill', label: t('tabs.skill'), count: skills?.kind === 'ready' ? skills.items.length : undefined },
-        { id: 'mcp', label: t('tabs.mcp'), count: inventory?.mcpClients?.length },
+        { id: 'mcp', label: t('tabs.mcp'), count: mcpRows.length },
       ]
 
       const panel = (id, children) => visited.includes(id) ? h('div', {
@@ -512,7 +541,7 @@ window.__ModuleLoader__.load({
         [health?.enabledCount ?? plugins.filter(row => row.enabled).length, 'enabled'],
         [health ? health.findings.length : '—', 'findings'],
         [skills?.kind === 'ready' ? skills.items.length : '—', 'skills'],
-        [inventory?.mcpClients?.length ?? '—', 'mcpStat'],
+        [inventory ? mcpRows.length : '—', 'mcpStat'],
       ]
       const showStats = state.kind === 'ready' && current !== undefined
 
@@ -574,6 +603,8 @@ window.__ModuleLoader__.load({
           previewRepair: '诊断并修复 {name}', repairPreview: '修复预览', target: '目标', effect: '影响', disablePlugin: '关闭插件', risk: '风险', low: '低', high: '高', reversible: '可撤销', notReversible: '不可撤销', applyRepair: '执行修复', confirmRepair: '确认并执行', cancel: '取消', previewOrRepairFailed: '无法预览或执行此修复。', stalePreview: '修复预览已过期或状态已变化，请重新加载后再试。',
           changeApplied: '设置已保存并应用。', restartRequired: '设置已保存；重启后生效。', changeOverridden: '设置已保存，但被更高优先级配置覆盖。', changeFailed: 'Host 未能应用此更改。',
           enable: '启用', disable: '停用', disabled: '已停用', enabledTag: '已启用', disabledTag: '已停用', active: '运行中', failed: '失败', loadingPhase: '加载中', pending: '等待中', unloading: '卸载中', notRunning: '未运行',
+          connecting: '连接中', disconnected: '已断开', transport: '传输方式', mcpSource: '连接来源', toolCount: '工具数',
+          skillReadOnly: 'Skill 的启用与停用由 profile 的 skills 目录与指令文件决定；本 Host 未提供开关接口，因此这里只读展示当前会话可见的条目。',
           'management-required': '管理服务受保护', unaddressable: '此条目无法通过当前 Profile 修改', activationFailed: '插件未能完成启动。', owner: '所属插件', tools: '工具注册', mcp: 'MCP 客户端', toolNames: '工具名称', global: '全局', scoped: '作用域', starting: '启动中', connected: '已连接', reconnecting: '正在重连', stopped: '已停止',
         }
         const en = {
@@ -598,6 +629,8 @@ window.__ModuleLoader__.load({
           previewRepair: 'Diagnose and repair {name}', repairPreview: 'Repair preview', target: 'Target', effect: 'Effect', disablePlugin: 'Disable plugin', risk: 'Risk', low: 'Low', high: 'High', reversible: 'Reversible', notReversible: 'Not reversible', applyRepair: 'Apply repair', confirmRepair: 'Confirm and apply', cancel: 'Cancel', previewOrRepairFailed: 'Could not preview or apply this repair.', stalePreview: 'The preview expired or state changed. Reload and preview the repair again.',
           changeApplied: 'The change was saved and applied.', restartRequired: 'The change was saved and will apply after restart.', changeOverridden: 'The change was saved but overridden by a higher-priority configuration.', changeFailed: 'The Host could not apply this change.',
           enable: 'Enable', disable: 'Disable', disabled: 'Disabled', enabledTag: 'Enabled', disabledTag: 'Disabled', active: 'Active', failed: 'Failed', loadingPhase: 'Loading', pending: 'Pending', unloading: 'Unloading', notRunning: 'Not running',
+          connecting: 'Connecting', disconnected: 'Disconnected', transport: 'Transport', mcpSource: 'Source', toolCount: 'Tools',
+          skillReadOnly: 'Skills are enabled by the profile’s skills directories and instruction files; this Host exposes no toggle, so the catalog is read-only.',
           'management-required': 'Management service is protected', unaddressable: 'This entry cannot be changed by the current profile', activationFailed: 'The plugin did not finish starting.', owner: 'Owner', tools: 'Tool registrations', mcp: 'MCP clients', toolNames: 'Tool names', global: 'Global', scoped: 'Scoped', starting: 'Starting', connected: 'Connected', reconnecting: 'Reconnecting', stopped: 'Stopped',
         }
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'plugin-manager-wj: dictionaries')
@@ -663,10 +696,18 @@ window.__ModuleLoader__.load({
           }
         }
 
+        // Servers managed by a companion package live outside the Host's own MCP registry and answer
+        // through `mcpClientStatus/list`. It is optional, so a Host without it simply shows fewer rows.
+        const listMcpStatus = async () => {
+          const api = namespace('mcpClientStatus')
+          if (!api || typeof api.list !== 'function') return undefined
+          try { return unwrap(await api.list(), 'mcpClientStatus/list') } catch (_error) { return undefined }
+        }
+
         ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
           name: 'settings.plugins.tab', id: 'wj-registration-inventory', order: 20,
           label: () => t('tab'), locale: NS,
-          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, readSessionId: activeSessionId, watchSessions }),
+          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, listMcpStatus, readSessionId: activeSessionId, watchSessions }),
         }, ManagerPage))
       },
     }

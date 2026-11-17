@@ -132,6 +132,7 @@ const configView = {
  * options.sessionsById   – retained session rows the client store starts with
  * options.skillNamespaces – registry keys exposing the catalog (`remote.<name>`)
  * options.bareHost        – no remotes and no settings forms, i.e. a Host that mounts neither
+ * options.mcpStatus       – rows returned by the optional `mcpClientStatus/list` Remote
  */
 function createPage(options = {}) {
   let bundle
@@ -209,15 +210,17 @@ function createPage(options = {}) {
 
   const plugin = bundle.factory(name => name === 'react' ? runtime.React : undefined)
   let registered
-  // Cordis exposes a service both as `ctx.remote` and as `ctx.get('remote')`; the client reads the
-  // remotes through `ctx.get`, so the stub has to answer both.
-  const remotes = { pluginInventory: { list }, pluginManager: manager }
+  // Cordis exposes a service both as `ctx.remote` and as `ctx.get('remote')`; each remote namespace
+  // is also its own `remote.<name>` service, which is what the client probes first.
+  const mcpStatusRemote = options.mcpStatus ? { list: async () => ({ ok: true, value: options.mcpStatus }) } : undefined
+  const remotes = { pluginInventory: { list }, pluginManager: manager, mcpClientStatus: mcpStatusRemote }
   const ctx = {
     locale: { register() {}, bind() { return t } },
     remote: options.bareHost ? undefined : remotes,
     get(name) {
       if (options.bareHost) return undefined
       if (name === 'remote') return remotes
+      if (name === 'remote.mcpClientStatus') return mcpStatusRemote
       if (name === 'configForms') return forms
       if (name === 'sessions') return sessions
       for (const namespace of options.skillNamespaces ?? ['skills']) {
@@ -382,4 +385,29 @@ test('the tab registers on a Host that mounts no optional services', async () =>
   assert.equal(page.definition.id, 'wj-registration-inventory')
   assert.ok(page.text().includes('error'), 'the page should report the unreadable inventory')
   assert.ok(find(page.tree, node => node.type === 'button' && textOf(node) === 'retry').length >= 1, 'the failure should offer a retry')
+})
+
+test('MCP rows merge the optional client-status Remote by server name', async () => {
+  // Servers owned by a companion package are absent from the Host's own registry, so the view
+  // merges both sources instead of showing only what the Host composes.
+  const page = createPage({
+    sessionsById: {},
+    mcpStatus: [
+      { serverName: 'chrome', state: 'connecting', transport: 'websocket', source: 'companion', toolCount: 2, tools: [{ name: 'take_screenshot' }] },
+      { serverName: 'wdk-mcp', state: 'connected', transport: 'stdio', source: 'companion', toolCount: 2, tools: [{ name: 'alpha' }, { name: 'beta' }] },
+    ],
+  })
+  await page.settle()
+  await page.clickTab('wj-tab-mcp')
+  const mcp = textOf(page.panelById('wj-panel-mcp'))
+
+  // A status-only server still shows up, with the fields the Host registry does not carry.
+  assert.ok(mcp.includes('wdk-mcp'), 'status-only servers should be listed')
+  assert.ok(mcp.includes('stdio') && mcp.includes('companion'), 'transport and source should render')
+  assert.ok(mcp.includes('alpha') && mcp.includes('beta'), 'status tool names should render')
+
+  // The Host registry wins for a server both sources report.
+  assert.ok(mcp.includes('chrome'))
+  assert.ok(mcp.includes('websocket'), 'status transport survives the merge')
+  assert.ok(mcp.includes('take_screenshot') && mcp.includes('navigate'), 'inventory tool names win')
 })

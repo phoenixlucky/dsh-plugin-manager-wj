@@ -20,7 +20,7 @@
 | Plugins | `pluginManager.listPlugins`, `pluginManager.getHealthSnapshot` | Enable/disable, findings, and bounded repair previews. |
 | Configuration | `configForms.describe`, `pluginManager.getConfigProvenance` | Secret fields are omitted; provenance shows layers and redacted identities. |
 | Skills | `skills/list` through the active session | Session-scoped, so the catalog resolves from the session working directory and reloads automatically when the active session changes. Model-invocable and user-only entries are marked separately. |
-| MCP | `pluginInventory.list` | MCP client connections plus the owners of registered tools. |
+| MCP | `pluginInventory.list`, `mcpClientStatus.list` (optional) | MCP client connections plus the owners of registered tools. Servers managed by a companion package live outside the Host's own registry and are merged in by name, with transport, source and tool count. |
 
 Enabling or disabling a plugin writes through the Host's existing profile manager. A change can apply immediately, require a restart, be overridden by a higher-priority layer, or be refused by the Host. Repair previews are short-lived and become invalid when their finding changes. Selecting a low-risk repair with one eligible target executes it automatically; a high-risk repair first shows the exact effect and requires an explicit confirmation click. The current repair action disables the selected plugin involved in a duplicate global tool or MCP registration.
 
@@ -30,7 +30,7 @@ Configuration fields are discovered from each Host-provided schema. Secret field
 
 Use a Harness Host that exposes the plugin-management Remote, settings forms, and runtime inventory. Older Hosts may show inventory only or report diagnostics as unavailable; upgrade Harness to use management actions. Only plugins addressable through the active profile can be toggled.
 
-The tab hard-injects only two core client services, `slots` and `locale`. Everything else — the `pluginInventory` and `pluginManager` remotes, `configForms`, the skills Remote and the live session — is resolved through `ctx.get` at call time rather than declared in `inject`, because a Client plugin that lists an optional service in `inject` stays pending on a Host without it, and a pending plugin registers no tab at all: the settings page then shows no plugin views instead of a degraded one. The Skills view therefore degrades rather than disappearing: no Remote means an explanatory message, and no session means a waiting state that loads the catalog by itself as soon as a session appears or the active session changes, with no manual refresh. The namespace is discovered rather than hardcoded (`skills`, `skill`, `skillCatalog`, then any registered `remote.*` name containing "skill"), so a Host that renames it needs no code change. Skills are read-only here; the UI never loads skill bodies. The UI does not install/remove packages, edit credentials, or run arbitrary repair commands.
+The tab hard-injects only two core client services, `slots` and `locale`. Everything else — the `pluginInventory` and `pluginManager` remotes, `configForms`, the skills Remote and the live session — is resolved through `ctx.get` at call time rather than declared in `inject`, because a Client plugin that lists an optional service in `inject` stays pending on a Host without it, and a pending plugin registers no tab at all: the settings page then shows no plugin views instead of a degraded one. The Skills view therefore degrades rather than disappearing: no Remote means an explanatory message, and no session means a waiting state that loads the catalog by itself as soon as a session appears or the active session changes, with no manual refresh. The namespace is discovered rather than hardcoded (`skills`, `skill`, `skillCatalog`, then any registered `remote.*` name containing "skill"), so a Host that renames it needs no code change. Skills are read-only here: the Host exposes only `skills/list` (policy `reader-session-read`) and no skills configuration namespace, so there is no Remote to enable or disable an entry and the view shows what the active session can see instead of offering a switch that cannot work. The UI never loads skill bodies. The UI does not install/remove packages, edit credentials, or run arbitrary repair commands.
 
 ## Install
 
@@ -49,11 +49,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## Release
 
 ```sh
-npm test                        # node --test: 13 checks (views, inject contract, module id, patch shape)
+npm test                        # node --test: 14 checks (views, MCP merge, inject contract, module id, patch shape)
 npm publish --access public     # writes to registry.npmjs.org
 ```
 
-The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.3.3 && git push --tags`) so the GitHub history matches the registry.
+The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.3.4 && git push --tags`) so the GitHub history matches the registry.
 
 ## Development
 
@@ -61,7 +61,7 @@ The package is an ES module. `index.js` is the Host entry point and `client.js` 
 
 `client.js` registers with `__ModuleLoader__.load({ id: '@tinyforge/dsh-plugin-manager-wj', … })`. That id must be the bare package name, scope included: the client module loader keys each Loader row by package name, and a bundle that registers any other id is reported as loaded without registering its row, which leaves the plugin without a fiber and the settings tab missing entirely. Renaming the package means updating that id in the same commit.
 
-- `node --test` runs the bundle behavior checks in `tests/client.test.js`: the four views render and switch, the visited views stay mounted, search and enable/disable act on the active view, a secret configuration object stays out of the editor, opening a session loads the skill catalog without a refresh, a renamed skills namespace is discovered, a transient catalog failure recovers from the inline retry, and the tab still registers on a Host that mounts no optional services.
+- `node --test` runs the bundle behavior checks in `tests/client.test.js`: the four views render and switch, the visited views stay mounted, search and enable/disable act on the active view, a secret configuration object stays out of the editor, opening a session loads the skill catalog without a refresh, a renamed skills namespace is discovered, a transient catalog failure recovers from the inline retry, the tab still registers on a Host that mounts no optional services, and MCP rows merge the optional client-status Remote by server name.
 - `node --check client.js` checks the browser bundle syntax.
 - `tests/patch.test.js` parses `cordis.patch.yml` and asserts no plain scalar starts with a reserved YAML indicator — the scoped package name must stay quoted, or the Host rejects the bundle patch.
 - `tests/inject.test.js` pins the plugin's `inject` list to the core services only, so a regressed hard-injection of an optional remote fails the suite instead of silently emptying the settings page on some Hosts.
