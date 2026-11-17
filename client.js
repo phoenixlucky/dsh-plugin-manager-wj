@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 window.__ModuleLoader__.load({
-  id: 'dsh-plugin-manager-wj',
+  // The module id must be the bare package name: dsh-client-modules attaches a package's
+  // browser half to its Loader row by that name and rejects a bundle that registers any other
+  // id ("loaded without registering ... via __ModuleLoader__.load"), which leaves the plugin
+  // with no fiber and therefore no slot registration.
+  id: '@tinyforge/dsh-plugin-manager-wj',
   factory(require) {
     const React = require('react')
     const h = React.createElement
