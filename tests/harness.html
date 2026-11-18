@@ -253,7 +253,7 @@
 
     const page = createPage({ sessionsById: { 'sess-1': { id: 'sess-1', cwd: 'E:/home', retainedBy: { mainView: 1 } } } })
     check('inject declares only core client services', JSON.stringify(page.module.inject) === JSON.stringify(['slots', 'locale']), JSON.stringify(page.module.inject))
-    check('tab registered into settings.plugins.tab', page.registered?.definition?.name === 'settings.plugins.tab')
+    check('tab registered into plugins.tab', page.registered?.definition?.name === 'plugins.tab')
     check('definition exposes the skill bridge', typeof page.registered.definition.inject().loadSkills === 'function'
       && typeof page.registered.definition.inject().readSessionId === 'function'
       && typeof page.registered.definition.inject().watchSessions === 'function')

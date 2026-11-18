@@ -55,7 +55,7 @@ npm test                        # node --test：14 项检查（视图、工具�
 npm publish --access public     # 发布到 registry.npmjs.org
 ```
 
-包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.4.0 && git push --tags`），让 GitHub 历史与 registry 版本对应。
+包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.4.1 && git push --tags`），让 GitHub 历史与 registry 版本对应。
 
 ## 开发
 
@@ -69,7 +69,7 @@ npm publish --access public     # 发布到 registry.npmjs.org
 - `tests/inject.test.js` 把插件的 `inject` 固定为仅核心服务，这样一旦有人重新硬注入可选 remote，测试就会失败，而不是在某些 Host 上悄悄把设置页清空。
 - `tests/module-id.test.js` 断言注册的模块 id 等于 `package.json` 的 `name`，避免改名后浏览器 bundle 悄悄脱离自己的 Loader 行。
 - `tests/harness.html` 在浏览器中用测试夹具挂载真实 `client.js`，不依赖 Node 也能断言同一批行为；直接从磁盘打开并读取 JSON 报告。
-- `tests/parse-check.html` 是最小的浏览器冒烟页：确认 `client.js` 能解析并注册 `settings.plugins.tab`。
+- `tests/parse-check.html` 是最小的浏览器冒烟页：确认 `client.js` 能解析并注册 `plugins.tab`（插件页的标签槽；旧版的 `settings.plugins.tab` 在当前 DSH 中并不存在，注册会落空）。
 
 Harness API 和 Host 行为在 `deepseek-harness` 仓库实现并测试。
 

@@ -55,7 +55,7 @@ npm test                        # node --test: 14 checks (views, tool ownership,
 npm publish --access public     # writes to registry.npmjs.org
 ```
 
-The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.4.0 && git push --tags`) so the GitHub history matches the registry.
+The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.4.1 && git push --tags`) so the GitHub history matches the registry.
 
 ## Development
 
@@ -69,7 +69,7 @@ The package is an ES module. `index.js` is the Host entry point and `client.js` 
 - `tests/inject.test.js` pins the plugin's `inject` list to the core services only, so a regressed hard-injection of an optional remote fails the suite instead of silently emptying the settings page on some Hosts.
 - `tests/module-id.test.js` asserts the registered module id equals `package.json`'s `name`, so a rename cannot silently detach the browser bundle from its Loader row.
 - `tests/harness.html` mounts the real `client.js` against fixtures in a browser and asserts the same behavior without Node; open it directly from disk and read the JSON report.
-- `tests/parse-check.html` is a minimal browser smoke page: it confirms `client.js` parses and registers `settings.plugins.tab`.
+- `tests/parse-check.html` is a minimal browser smoke page: it confirms `client.js` parses and registers `plugins.tab`, the Plugins page's tab slot (the older `settings.plugins.tab` does not exist in current DSH, so that registration landed nowhere).
 
 Harness API and Host behavior are implemented and tested in the `deepseek-harness` repository.
 

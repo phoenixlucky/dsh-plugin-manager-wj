@@ -667,8 +667,8 @@ window.__ModuleLoader__.load({
 
         // No `mcpClientStatus/list` probe lives here: the MCP settings bundle owns MCP server state
         // and its page, and reading that remote from two pages is what made the two views conflict.
-        ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
-          name: 'settings.plugins.tab', id: 'wj-registration-inventory', order: 20,
+        ctx.slots.inject('plugins.tab', () => ctx.slots.register({
+          name: 'plugins.tab', id: 'wj-registration-inventory', order: 20,
           label: () => t('tab'), locale: NS,
           inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, readSessionId: activeSessionId, watchSessions }),
         }, ManagerPage))

@@ -236,7 +236,7 @@ function createPage(options = {}) {
     },
   }
   plugin.apply(ctx)
-  assert.equal(registered.definition.name, 'settings.plugins.tab')
+  assert.equal(registered.definition.name, 'plugins.tab')
 
   const props = { ...registered.definition.inject(), t }
   const root = element(registered.component, props)
@@ -384,7 +384,7 @@ test('the tab registers on a Host that mounts no optional services', async () =>
   const page = createPage({ sessionsById: {}, bareHost: true })
   await page.settle()
 
-  assert.equal(page.definition.name, 'settings.plugins.tab')
+  assert.equal(page.definition.name, 'plugins.tab')
   assert.equal(page.definition.id, 'wj-registration-inventory')
   assert.ok(page.text().includes('error'), 'the page should report the unreadable inventory')
   assert.ok(find(page.tree, node => node.type === 'button' && textOf(node) === 'retry').length >= 1, 'the failure should offer a retry')
