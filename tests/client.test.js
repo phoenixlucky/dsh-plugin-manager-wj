@@ -232,7 +232,11 @@ function createPage(options = {}) {
   // page must not read it or render a competing server list.
   const remotes = { pluginInventory: { list }, pluginManager: manager }
   const ctx = {
-    locale: { register() {}, bind() { return t } },
+    locale: {
+      register() {},
+      bind() { return t },
+      ...(options.resolveText === undefined ? {} : { resolveText: options.resolveText }),
+    },
     remote: options.bareHost ? undefined : remotes,
     get(name) {
       if (options.bareHost) return undefined
@@ -371,6 +375,47 @@ test('the management page switches between plugin, configuration, skill and tool
   await page.settle()
   assert.deepEqual(page.enabledWrites, [['plugin-one', false]])
   assert.ok(page.text().includes('changeApplied'))
+})
+
+test('plugin rows carry a localized introduction instead of a bare module name', async () => {
+  // `PluginLocalizedMeta` titles and descriptions are `LocalizedText`: a plain string or a map with
+  // an English fallback. Reading only `.en`/`.zh` used to leave the technical module name on every
+  // row and dropped the introduction entirely, which is exactly what a person needs to tell
+  // `ui-directory-picker-native` apart from any other plugin.
+  const page = createPage({
+    sessionsById: {},
+    resolveText: value => typeof value === 'string' ? value : (value.zh ?? value.en),
+    entries: [
+      {
+        entryId: 'picker',
+        moduleName: 'ui-directory-picker-native',
+        enabled: true,
+        fiberPhase: 'active',
+        meta: {
+          title: { en: 'Native directory picker', zh: '系统目录选择界面' },
+          description: { en: 'Drives the OS directory chooser.', zh: '连接工作区选择入口与系统目录选择对话框。' },
+        },
+      },
+      { entryId: 'include:timer', moduleName: 'timer', enabled: true, fiberPhase: 'active' },
+      { entryId: 'bare', moduleName: 'bare-package', enabled: true, fiberPhase: 'active', meta: { title: 'Bare package' } },
+    ],
+  })
+  await page.settle()
+
+  const plugins = textOf(page.panelById('wj-panel-plugins'))
+  assert.ok(plugins.includes('系统目录选择界面'), 'the current language wins over the English title')
+  assert.ok(!plugins.includes('ui-directory-picker-native'), 'a localized title replaces the module name')
+  assert.ok(plugins.includes('连接工作区选择入口与系统目录选择对话框。'), 'the introduction is rendered under the title')
+  assert.ok(plugins.includes('Bare package'), 'a plain-string title resolves as-is')
+  assert.ok(plugins.includes('pluginNoMeta'), 'a Loader-internal entry states that it has no package metadata')
+  assert.ok(plugins.includes('pluginNoDescription'), 'a package that declares no introduction says so')
+
+  page.search('系统目录')
+  await page.settle()
+  assert.ok(textOf(page.panelById('wj-panel-plugins')).includes('系统目录选择界面'), 'search matches the localized title')
+  page.search('选择对话框')
+  await page.settle()
+  assert.ok(textOf(page.panelById('wj-panel-plugins')).includes('系统目录选择界面'), 'search matches the localized introduction')
 })
 
 test('opening a session loads the skill catalog automatically', async () => {

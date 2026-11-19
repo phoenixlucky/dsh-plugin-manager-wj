@@ -184,7 +184,7 @@
       ok: true,
       value: {
         managementAvailable: true,
-        entries: [
+        entries: options.entries ?? [
           { entryId: 'plugin-one', moduleName: 'plugin-one', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Plugin One' } } },
           { entryId: 'plugin-two', moduleName: 'plugin-two', enabled: false, fiberPhase: 'failed', diagnostic: 'boom: missing service', meta: { title: { en: 'Plugin Two' } } },
         ],
@@ -209,7 +209,11 @@
     const module = window.__bundle.factory(name => name === 'react' ? runtime.React : undefined)
     let registered
     const ctx = {
-      locale: { register() {}, bind() { return t } },
+      locale: {
+        register() {},
+        bind() { return t },
+        ...(options.resolveText === undefined ? {} : { resolveText: options.resolveText }),
+      },
       remote: { pluginInventory: { list }, pluginManager: manager },
       get(name) {
         if (name === 'configForms') return forms
@@ -320,6 +324,29 @@
     await page.settle()
     check('toggle writes through pluginManager', JSON.stringify(page.enabledWrites) === JSON.stringify([['plugin-one', false]]), JSON.stringify(page.enabledWrites))
     check('toggle surfaces the applied notice', page.text().includes('changeApplied'))
+
+    // A row's title and introduction are localized package metadata, not the module specifier.
+    const described = createPage({
+      sessionsById: {},
+      resolveText: value => typeof value === 'string' ? value : (value.zh ?? value.en),
+      entries: [
+        {
+          entryId: 'picker',
+          moduleName: 'ui-directory-picker-native',
+          enabled: true,
+          fiberPhase: 'active',
+          meta: {
+            title: { en: 'Native directory picker', zh: '系统目录选择界面' },
+            description: { en: 'Drives the OS directory chooser.', zh: '连接工作区选择入口与系统目录选择对话框。' },
+          },
+        },
+        { entryId: 'include:timer', moduleName: 'timer', enabled: true, fiberPhase: 'active' },
+      ],
+    })
+    await described.settle()
+    check('plugin rows localize the package title', described.text().includes('系统目录选择界面'), described.text().slice(0, 160))
+    check('plugin rows show the package introduction', described.text().includes('连接工作区选择入口与系统目录选择对话框。'))
+    check('a Loader-internal row states it carries no package metadata', described.text().includes('pluginNoMeta'))
 
     // A Host that requires a live session: no session at first, then one appears.
     const late = createPage({ sessionsById: {} })

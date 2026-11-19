@@ -11,7 +11,7 @@
 - **可切换视图：**一条标签栏在插件健康、配置、Skill 目录与工具注册归属之间切换。已访问过的视图保持挂载，因此切换时配置草稿和搜索词都不会丢失。
 - **Harness Core：**使用 Host 提供的插件注册表、配置解析、冲突检测、生命周期与依赖管理，以及设置服务。
 - **Management API：**查看插件状态、激活诊断、配置来源和工具运行时注册；可启停当前 Profile 能寻址的插件。
-- **Management UI：**按视图过滤，通过现有 schema 表单 `configForms` 编辑非密钥标量配置；工具视图给出每个工具的作用域与归属（MCP 服务器或推断出的插件包）。
+- **Management UI：**按视图过滤，通过现有 schema 表单 `configForms` 编辑非密钥标量配置；工具视图给出每个工具的作用域与归属（MCP 服务器或推断出的插件包）。插件行显示包本地化的标题与说明；Loader 内部条目若没有包元数据，会明确写出这一点，而不是留空。
 
 ### 视图
 
@@ -55,11 +55,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## 发布
 
 ```sh
-npm test                        # node --test：29 项检查（视图、工具归属、Host 路由、inject 契约、模块 id、patch 结构）
+npm test                        # node --test：30 项检查（视图、工具归属、Host 路由、inject 契约、模块 id、patch 结构）
 npm publish --access public     # 发布到 registry.npmjs.org
 ```
 
-包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.5.1 && git push --tags`），让 GitHub 历史与 registry 版本对应。
+包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.6.0 && git push --tags`），让 GitHub 历史与 registry 版本对应。
 
 ## 开发
 

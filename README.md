@@ -11,7 +11,7 @@
 - **Switchable views:** one tab strip switches between plugin health, configuration, the skill catalog, and tool registration ownership. A visited view stays mounted, so a configuration draft and the search term survive switching.
 - **Harness Core:** consumes the Host's plugin registry, configuration resolver, conflict detector, lifecycle/dependency manager, and settings services.
 - **Management API:** shows plugin state, derived activation findings, configuration provenance, and tool runtime registrations. It can enable or disable profile-addressable plugins.
-- **Management UI:** filters the active view, edits non-secret scalar settings through the existing schema-backed `configForms`, and reports each tool's scope with its owner (an MCP server, or the plugin package the Host half matched).
+- **Management UI:** filters the active view, edits non-secret scalar settings through the existing schema-backed `configForms`, and reports each tool's scope with its owner (an MCP server, or the plugin package the Host half matched). Plugin rows show the package's localized title and introduction; a Loader-internal entry that carries no package metadata states that instead of leaving a blank line.
 
 ### Views
 
@@ -55,11 +55,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## Release
 
 ```sh
-npm test                        # node --test: 29 checks (views, tool ownership, Host route, inject contract, module id, patch shape)
+npm test                        # node --test: 30 checks (views, tool ownership, Host route, inject contract, module id, patch shape)
 npm publish --access public     # writes to registry.npmjs.org
 ```
 
-The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.5.1 && git push --tags`) so the GitHub history matches the registry.
+The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.6.0 && git push --tags`) so the GitHub history matches the registry.
 
 ## Development
 

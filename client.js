@@ -66,6 +66,20 @@ window.__ModuleLoader__.load({
       return source ? `${t(source.layer)} · ${source.identity}` : t('sourceUnknown')
     }
 
+    // `LocalizedText` is a plain string or a map keyed by lowercase locale id with an English
+    // fallback. The locale service resolves the current UI language; this reader keeps titles and
+    // descriptions readable where that service is absent, and never renders an object.
+    function localized(value) {
+      if (typeof value === 'string') return value
+      if (value !== null && typeof value === 'object') {
+        const english = value.en
+        if (typeof english === 'string') return english
+        const first = Object.values(value).find(entry => typeof entry === 'string')
+        return typeof first === 'string' ? first : undefined
+      }
+      return undefined
+    }
+
     // The official Host projects the Loader, not a health model: a failed fiber plus its diagnostic
     // is the whole of what it still reports, and it is exactly what this page diagnoses.
     function findingsOf(entries) {
@@ -140,6 +154,7 @@ window.__ModuleLoader__.load({
       row: { display: 'grid', gap: 10, padding: '14px 16px', borderBottom: '1px solid color-mix(in srgb, CanvasText 9%, Canvas)' },
       rowHead: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' },
       rowTitle: { margin: 0, fontSize: 14, fontWeight: 650, overflowWrap: 'anywhere' },
+      rowDescription: { margin: '3px 0 0', color: 'GrayText', fontSize: 12, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
       meta: { display: 'flex', gap: '5px 14px', flexWrap: 'wrap', color: 'GrayText', fontSize: 12, lineHeight: 1.5 },
       badge: { display: 'inline-flex', alignItems: 'center', minHeight: 22, padding: '1px 9px', border: '1px solid color-mix(in srgb, CanvasText 14%, Canvas)', borderRadius: 999, fontSize: 11, fontWeight: 600 },
       warning: { borderColor: 'color-mix(in srgb, #d18a00 35%, Canvas)', background: 'color-mix(in srgb, #d18a00 9%, Canvas)' },
@@ -269,8 +284,17 @@ window.__ModuleLoader__.load({
         }, h('span', null, item.label), item.count === undefined ? null : h('span', { style: styles.tabCount }, String(item.count)))))
     }
 
-    function PluginsPanel({ pluginRows, findings, plugins, query, busy, canManage, onToggle, t }) {
-      const name = row => row.meta?.title?.en ?? row.meta?.title?.zh ?? row.moduleName
+    function PluginsPanel({ pluginRows, findings, plugins, query, busy, canManage, onToggle, resolve, t }) {
+      // A row's display title and introduction are package metadata, not the module specifier.
+      // The Host localizes both; a Loader-internal entry that carries no package metadata says so
+      // instead of leaving the line empty, so a short technical name is never mistaken for a bug.
+      const name = row => resolve(row.meta?.title) || row.moduleName
+      const description = row => {
+        const declared = resolve(row.meta?.description)
+        if (declared) return declared
+        if (row.meta?.error) return resolve(row.meta.error) || row.meta.error
+        return row.meta === undefined ? t('pluginNoMeta') : t('pluginNoDescription')
+      }
       const severity = value => t(SEVERITY_KEY[value] ?? 'severityInfo')
       return h('div', { style: styles.page },
         h('p', { style: styles.description }, t('pluginsIntro')),
@@ -294,6 +318,7 @@ window.__ModuleLoader__.load({
             h('div', { style: styles.rowHead },
               h('div', null,
                 h('h3', { style: styles.rowTitle }, name(row)),
+                h('p', { style: styles.rowDescription }, description(row)),
                 h('div', { style: styles.meta }, h('span', null, row.entryId), h('span', null, t(row.fiberPhase ?? 'notRunning')), row.readOnlyReason ? h('span', null, t(row.readOnlyReason)) : null)),
               h('button', {
                 type: 'button', style: { ...styles.button, ...(row.enabled ? styles.primary : {}) },
@@ -376,7 +401,7 @@ window.__ModuleLoader__.load({
           row.description ? h('p', { style: styles.muted }, row.description) : null))) : null))
     }
 
-    function ManagerPage({ list, manager, forms, loadSkills, loadTools, readSessionId, watchSessions, t }) {
+    function ManagerPage({ list, manager, forms, loadSkills, loadTools, readSessionId, watchSessions, resolveText, t }) {
       const initialTab = readStoredTab()
       const [tab, setTab] = React.useState(initialTab)
       const [visited, setVisited] = React.useState([initialTab])
@@ -528,7 +553,17 @@ window.__ModuleLoader__.load({
       const settings = current?.settings
       const needle = query.trim().toLocaleLowerCase()
       const matches = values => !needle || values.filter(Boolean).some(value => String(value).toLocaleLowerCase().includes(needle))
-      const pluginRows = plugins.filter(row => matches([row.moduleName, row.entryId, row.meta?.title?.en, row.meta?.title?.zh, row.meta?.description]))
+      // The locale service picks the current UI language for package titles and introductions;
+      // without it, `localized` keeps the declared English fallback.
+      const resolve = value => {
+        if (value === undefined || value === null) return undefined
+        let text
+        try { text = typeof resolveText === 'function' ? resolveText(value) : undefined } catch (_error) { text = undefined }
+        return typeof text === 'string' && text !== '' ? text : localized(value)
+      }
+      const pluginTitle = row => resolve(row.meta?.title) || row.moduleName
+      const pluginDescription = row => resolve(row.meta?.description) || row.meta?.error
+      const pluginRows = plugins.filter(row => matches([row.moduleName, row.entryId, pluginTitle(row), pluginDescription(row)]))
       const findings = (health?.findings ?? []).filter(row => matches([row.id, row.code, row.evidence?.name, row.evidence?.detail]))
       // Legacy Hosts answered the inventory with registrations of their own; a Host served by this
       // package answers the `/api` route instead, so either source fills the same rows.
@@ -584,7 +619,7 @@ window.__ModuleLoader__.load({
         notice ? h('p', { role: 'status', style: styles.message }, notice) : null,
         panel('plugins', h(PluginsPanel, {
           pluginRows, findings, plugins, query: needle, busy, canManage,
-          onToggle: toggle, t,
+          onToggle: toggle, resolve, t,
         })),
         panel('config', h(ConfigPanel, { settings, settingsReady: settings !== undefined, plugins, forms, provenance: current?.provenance, t })),
         panel('skill', h(SkillPanel, { skills, needle, onRetry: refresh, t })),
@@ -603,6 +638,7 @@ window.__ModuleLoader__.load({
           eyebrow: '插件健康与管理', heading: '插件管理', description: '查看插件状态与冲突，追踪配置来源，浏览 Skill 目录与工具注册归属，并通过受控操作修复问题。', summary: '当前状态', items: '项',
           viewsLabel: '管理视图', 'tabs.plugins': '插件', 'tabs.config': '配置', 'tabs.skill': 'Skill', 'tabs.tools': '工具',
           pluginsIntro: '实时插件清单、健康诊断与启停操作。只列出当前 Profile 可寻址的插件。',
+          pluginNoDescription: '该包未声明说明。', pluginNoMeta: 'Loader 内部条目，无包元数据。',
           configIntro: '按 Host schema 编辑非密钥配置，并查看每个字段的有效来源与被覆盖层。',
           skillIntro: '当前会话可用的 Skill 目录，按会话工作目录解析，并随会话切换自动刷新；模型可调用与仅用户可调用的条目分开标记。',
           toolsIntro: '运行时工具注册清单，以及每个工具由哪个插件提供、作用于哪个范围。',
@@ -629,6 +665,7 @@ window.__ModuleLoader__.load({
           eyebrow: 'PLUGIN HEALTH AND MANAGEMENT', heading: 'Plugin management', description: 'Review plugin status and conflicts, trace configuration sources, browse the skill catalog and tool ownership, and repair issues through bounded actions.', summary: 'Current status', items: 'items',
           viewsLabel: 'Management views', 'tabs.plugins': 'Plugins', 'tabs.config': 'Configuration', 'tabs.skill': 'Skills', 'tabs.tools': 'Tools',
           pluginsIntro: 'Live plugin inventory, health findings and enable/disable actions. Only plugins addressable by the active profile are listed.',
+          pluginNoDescription: 'The package declares no description.', pluginNoMeta: 'Loader-internal entry; no package metadata.',
           configIntro: 'Edit non-secret settings through the Host schema and see each field’s effective source and shadowed layers.',
           skillIntro: 'Skills available to the current session, resolved from its working directory and reloaded automatically when the session changes; model-invocable and user-only entries are marked separately.',
           toolsIntro: 'Runtime tool registrations, with the plugin that provides each tool and the scope it applies to.',
@@ -741,12 +778,19 @@ window.__ModuleLoader__.load({
           }
         }
 
+        // Package titles and introductions are `LocalizedText`; the locale service resolves the
+        // current UI language, and the page falls back to the declared English text without it.
+        const localeService = ctx.locale ?? service('locale')
+        const resolveText = typeof localeService?.resolveText === 'function'
+          ? text => localeService.resolveText(text)
+          : undefined
+
         // No `mcpClientStatus/list` probe lives here: the MCP settings bundle owns MCP server state
         // and its page, and reading that remote from two pages is what made the two views conflict.
         ctx.slots.inject('plugins.tab', () => ctx.slots.register({
           name: 'plugins.tab', id: 'wj-registration-inventory', order: 20,
           label: () => t('tab'), locale: NS,
-          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, loadTools, readSessionId: activeSessionId, watchSessions }),
+          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, loadTools, readSessionId: activeSessionId, watchSessions, resolveText }),
         }, ManagerPage))
       },
     }
