@@ -513,7 +513,7 @@ window.__ModuleLoader__.load({
       const settings = current?.settings
       const needle = query.trim().toLocaleLowerCase()
       const matches = values => !needle || values.filter(Boolean).some(value => String(value).toLocaleLowerCase().includes(needle))
-      const pluginRows = plugins.filter(row => matches([row.moduleName, row.entryId, row.meta?.title, row.meta?.description]))
+      const pluginRows = plugins.filter(row => matches([row.moduleName, row.entryId, row.meta?.title?.en, row.meta?.title?.zh, row.meta?.description]))
       const findings = (health?.findings ?? []).filter(row => matches([row.id, row.code, row.evidence?.name, row.evidence?.detail]))
       // Legacy Hosts answered the inventory with registrations of their own; a Host served by this
       // package answers the `/api` route instead, so either source fills the same rows.
