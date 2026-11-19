@@ -169,25 +169,36 @@
         }
       },
     }
+    // The official Host projects the Loader; its own manager only writes profile files.
     const manager = {
-      listPlugins: async () => ({
-        ok: true,
-        value: [
-          { entryId: 'plugin-one', moduleName: 'plugin-one', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Plugin One' } } },
-          { entryId: 'plugin-two', moduleName: 'plugin-two', enabled: false, fiberPhase: 'notRunning', meta: { title: { en: 'Plugin Two' } } },
-        ],
-      }),
-      getHealthSnapshot: async () => ({ ok: true, value: { pluginCount: 2, enabledCount: 1, findings: [{ id: 'f1', code: 'tool.duplicate-name', severity: 'error', affectedEntryIds: ['plugin-two'], remediationEntryIds: [], evidence: { name: 'read_file' } }] } }),
       getConfigProvenance: async () => ({ ok: true, value: [{ fieldPath: ['label'], effective: { layer: 'profile', identity: 'web' }, shadowed: [] }] }),
-      setPluginEnabled: async (entryId, enabled) => { enabledWrites.push([entryId, enabled]); return { ok: true, value: { application: 'applied' } } },
+      setPluginEnabled: async (entryId, enabled) => { enabledWrites.push([entryId, enabled]); return { ok: true, value: { changed: true, application: 'applied', stage: 'enable', target: entryId, enabled } } },
     }
     const list = async () => ({
       ok: true,
       value: {
-        toolRegistrations: [{ name: 'read_file', scope: 'global', owner: { moduleName: 'fs-plugin', entryId: 'fs' } }],
-        mcpClients: [{ serverName: 'chrome', state: 'connected', owner: { moduleName: 'mcp-plugin', entryId: 'mcp' }, toolNames: ['take_screenshot', 'navigate'] }],
+        managementAvailable: true,
+        entries: [
+          { entryId: 'plugin-one', moduleName: 'plugin-one', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Plugin One' } } },
+          { entryId: 'plugin-two', moduleName: 'plugin-two', enabled: false, fiberPhase: 'failed', diagnostic: 'boom: missing service', meta: { title: { en: 'Plugin Two' } } },
+        ],
       },
     })
+    // The Host half serves `/api/wj/tool-inventory`; this page owns no Host, so stub that route.
+    const toolCalls = []
+    const realFetch = window.fetch
+    window.fetch = async (url, init) => {
+      toolCalls.push({ url, init })
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          tools: [
+            { name: 'read_file', scope: 'global', description: 'Read a file', owner: { kind: 'package', moduleName: 'fs-plugin', entryId: 'fs', inferred: true } },
+            { name: 'mcp__chrome__take_screenshot', scope: 'agent', agentId: 'sess-1', owner: { kind: 'mcp', serverName: 'chrome' } },
+          ],
+        }),
+      }
+    }
 
     const module = window.__bundle.factory(name => name === 'react' ? runtime.React : undefined)
     let registered
@@ -264,7 +275,8 @@
     check('plugins tab starts selected', page.tabs()[0].props['aria-selected'] === 'true' && page.tabs()[1].props['aria-selected'] === 'false')
     check('only the visited panel is mounted', findBy(page.tree, node => node.props?.role === 'tabpanel').length === 1)
     check('plugins view lists plugin rows', page.text().includes('Plugin One') && page.text().includes('plugin-two'))
-    check('plugins view shows findings', page.text().includes('tool.duplicate-name') && page.text().includes('severityError'))
+    check('plugins view derives a failed activation', page.text().includes('plugin.activation-failed') && page.text().includes('severityError'))
+    check('plugins view shows the activation diagnostic', page.text().includes('boom: missing service'))
     check('plugins view keeps enable/disable actions', findBy(page.tree, node => node.type === 'button' && textOf(node) === 'disable').length === 1)
 
     await page.clickTab('wj-tab-config')
@@ -281,9 +293,12 @@
     check('skill panel shows the instruction file', page.text().includes('E:/skills/office-xlsx/SKILL.md'))
 
     await page.clickTab('wj-tab-tools')
+    check('tools panel reads the Host registry route', toolCalls.length === 1 && toolCalls[0].url === '/api/wj/tool-inventory')
     check('tools panel lists tool registrations', page.text().includes('read_file') && page.text().includes('fs-plugin'))
-    // The MCP settings bundle owns MCP servers; this page must not render a competing list.
-    check('tools panel lists no MCP servers', !page.text().includes('chrome') && !page.text().includes('take_screenshot'))
+    check('tools panel marks an inferred owner', page.text().includes('ownerInferred'))
+    // The MCP settings bundle owns MCP servers; this page lists tools, never a server list.
+    check('tools panel shows MCP tools as server-owned', page.text().includes('mcp__chrome__take_screenshot') && page.text().includes('ownerMcp'))
+    check('tools panel shows the scoped registration scope', page.text().includes('sess-1'))
     check('all four panels stay mounted after visiting', findBy(page.tree, node => node.props?.role === 'tabpanel').length === 4)
 
     const search = findBy(page.tree, node => node.props?.type === 'search')[0]

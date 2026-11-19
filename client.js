@@ -13,6 +13,9 @@ window.__ModuleLoader__.load({
     // server list of its own: a second list here duplicated that page and read the same remote.
     const TAB_ORDER = ['plugins', 'config', 'skill', 'tools']
     const TAB_KEY = 'dsh-plugin-manager-wj/tab'
+    // The Host half serves the tool registry on the shared authenticated `/api` channel; the
+    // official Remote table carries no tool namespace, so this route is the only way in.
+    const TOOL_INVENTORY_URL = '/api/wj/tool-inventory'
 
     function unwrap(result, name) {
       if (!result || result.ok !== true) throw new Error(`${name}: ${result?.error?.message ?? 'unavailable'}`)
@@ -58,6 +61,38 @@ window.__ModuleLoader__.load({
 
     function sourceText(source, t) {
       return source ? `${t(source.layer)} · ${source.identity}` : t('sourceUnknown')
+    }
+
+    // The official Host projects the Loader, not a health model: a failed fiber plus its diagnostic
+    // is the whole of what it still reports, and it is exactly what this page diagnoses.
+    function findingsOf(entries) {
+      const findings = []
+      for (const entry of entries) {
+        if (entry?.fiberPhase !== 'failed') continue
+        const entryId = String(entry.entryId ?? entry.moduleName ?? '')
+        findings.push({
+          id: `activation:${entryId}`,
+          code: 'plugin.activation-failed',
+          severity: 'error',
+          affectedEntryIds: entry.entryId === undefined ? [] : [entry.entryId],
+          remediationEntryIds: [],
+          evidence: {
+            name: entry.moduleName,
+            ...(typeof entry.diagnostic === 'string' && entry.diagnostic !== '' ? { detail: entry.diagnostic } : {}),
+          },
+        })
+      }
+      return findings
+    }
+
+    // One Loader projection serves both shapes: the official `{ entries, managementAvailable }`
+    // snapshot and the older `{ toolRegistrations, mcpClients }` inventory.
+    function readInventory(value) {
+      return {
+        entries: Array.isArray(value?.entries) ? value.entries : [],
+        managementAvailable: value?.managementAvailable !== false,
+        toolRegistrations: Array.isArray(value?.toolRegistrations) ? value.toolRegistrations : [],
+      }
     }
 
     const SEVERITY_KEY = { error: 'severityError', warning: 'severityWarning', info: 'severityInfo' }
@@ -231,19 +266,11 @@ window.__ModuleLoader__.load({
         }, h('span', null, item.label), item.count === undefined ? null : h('span', { style: styles.tabCount }, String(item.count)))))
     }
 
-    function PluginsPanel({ pluginRows, findings, plugins, query, busy, preview, onToggle, onPreview, onApplyPreview, onCancelPreview, t }) {
+    function PluginsPanel({ pluginRows, findings, plugins, query, busy, canManage, onToggle, t }) {
       const name = row => row.meta?.title?.en ?? row.meta?.title?.zh ?? row.moduleName
       const severity = value => t(SEVERITY_KEY[value] ?? 'severityInfo')
       return h('div', { style: styles.page },
         h('p', { style: styles.description }, t('pluginsIntro')),
-        preview ? h('section', { style: { ...styles.section, padding: 16 }, 'aria-label': t('repairPreview') },
-          h('h2', { style: styles.sectionTitle }, t('repairPreview')),
-          h('p', { style: styles.meta }, `${t('target')}: ${plugins.find(row => row.entryId === preview.targetEntryId)?.moduleName ?? preview.targetEntryId}`),
-          h('p', { style: styles.meta }, `${t('effect')}: ${t('disablePlugin')}`),
-          h('p', { style: styles.meta }, `${t('risk')}: ${t(preview.risk)} · ${t(preview.reversible ? 'reversible' : 'notReversible')}`),
-          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-            h('button', { type: 'button', style: { ...styles.button, ...styles.primary }, disabled: busy === preview.previewId, onClick: () => { void onApplyPreview() } }, t(preview.requiresConfirmation ? 'confirmRepair' : 'applyRepair')),
-            h('button', { type: 'button', style: styles.button, onClick: onCancelPreview }, t('cancel')))) : null,
         h(Section, { id: 'findings', title: t('findingsTitle'), count: `${findings.length} ${t('items')}`, empty: t(query ? 'noMatches' : 'noRows') },
           findings.length ? h('ul', { style: styles.list }, findings.map(finding => {
             const severe = finding.severity === 'error'
@@ -257,11 +284,7 @@ window.__ModuleLoader__.load({
               finding.evidence?.name || finding.evidence?.serverName || finding.evidence?.packageName
                 ? h('div', { style: styles.meta }, `${t('evidence')}: ${finding.evidence.name ?? finding.evidence.serverName ?? finding.evidence.packageName}`)
                 : null,
-              finding.remediationEntryIds.map(id => {
-                const target = plugins.find(plugin => plugin.entryId === id)
-                if (!target) return null
-                return h('button', { key: id, type: 'button', style: styles.button, disabled: busy === finding.id, onClick: () => { void onPreview(finding, id) } }, t('previewRepair', { name: target.moduleName }))
-              }))
+              finding.evidence?.detail ? h('p', { style: { ...styles.message, padding: '4px 0 0' } }, finding.evidence.detail) : null)
           })) : null),
         h(Section, { id: 'plugins', title: t('pluginsTitle'), count: `${pluginRows.length} ${t('items')}`, empty: t(query ? 'noMatches' : 'noRows') },
           pluginRows.length ? h('ul', { style: styles.list }, pluginRows.map(row => h('li', { key: row.entryId, style: styles.row },
@@ -271,7 +294,7 @@ window.__ModuleLoader__.load({
                 h('div', { style: styles.meta }, h('span', null, row.entryId), h('span', null, t(row.fiberPhase ?? 'notRunning')), row.readOnlyReason ? h('span', null, t(row.readOnlyReason)) : null)),
               h('button', {
                 type: 'button', style: { ...styles.button, ...(row.enabled ? styles.primary : {}) },
-                'aria-pressed': String(row.enabled), disabled: busy === row.entryId || row.readOnlyReason !== undefined,
+                'aria-pressed': String(row.enabled), disabled: !canManage || busy === row.entryId || row.readOnlyReason !== undefined,
                 onClick: () => { void onToggle(row) },
               }, t(row.enabled ? 'disable' : 'enable'))),
             row.diagnostic ? h('p', { style: styles.meta }, t('activationFailed')) : null))) : null))
@@ -322,19 +345,35 @@ window.__ModuleLoader__.load({
 
     // Tool ownership is the one diagnostic the MCP settings page does not carry: it answers
     // "which plugin registered this tool", which belongs to plugin management, not to MCP setup.
-    function ToolsPanel({ inventory, toolRows, needle, t }) {
-      const owner = row => row.owner ? `${row.owner.moduleName} (${row.owner.entryId})` : '—'
+    function ToolsPanel({ tools, needle, rows, onRetry, t }) {
+      const scopeText = row => row.scope === 'agent' && row.agentId ? `${t('scoped')} · ${row.agentId}` : t('global')
+      const ownerText = row => {
+        const owner = row.owner
+        if (!owner) return t('ownerUnknown')
+        if (owner.kind === 'mcp') return `${t('ownerMcp')}: ${owner.serverName}`
+        const base = owner.entryId ? `${owner.moduleName} (${owner.entryId})` : owner.moduleName
+        return owner.inferred ? `${base} · ${t('ownerInferred')}` : base
+      }
+      const copy = tools?.kind === 'loading' ? t('loadingTools')
+        : tools?.kind === 'unavailable' ? t('toolInventoryUnavailable')
+        : tools?.kind === 'error' ? t('toolInventoryError')
+        : needle ? t('noMatches') : t('noRows')
+      const retryable = tools?.kind === 'error' || tools?.kind === 'unavailable'
       return h('div', { style: styles.page },
         h('p', { style: styles.description }, t('toolsIntro')),
         h('p', { style: styles.message }, t('toolsMcpNote')),
-        h(Section, { id: 'tools', title: t('tools'), count: `${toolRows.length} ${t('items')}`, empty: t(needle ? 'noMatches' : 'noRows') },
-          toolRows.length ? h('ul', { style: styles.list }, toolRows.map(row => h('li', { key: `${row.name}:${row.owner?.entryId ?? ''}`, style: styles.row },
-            h('h3', { style: styles.rowTitle }, row.name),
-            h('div', { style: styles.meta }, `${t('owner')}: ${owner(row)} · ${t(row.scope)}`)))) : null),
-        inventory ? null : h('p', { style: styles.message }, t('inventoryUnavailable')))
+        h(Section, {
+          id: 'tools', title: t('tools'), count: tools?.kind === 'ready' ? `${rows.length} ${t('items')}` : undefined,
+          empty: rows.length ? null : h('div', { style: { display: 'grid', gap: 10, justifyItems: 'start', padding: 16 } },
+            h('p', { style: { ...styles.message, padding: 0 } }, copy),
+            retryable ? h('button', { type: 'button', style: styles.button, onClick: () => { if (onRetry) onRetry() } }, t('retry')) : null),
+        }, rows.length ? h('ul', { style: styles.list }, rows.map(row => h('li', { key: `${row.name}:${row.scope}:${row.agentId ?? ''}`, style: styles.row },
+          h('h3', { style: styles.rowTitle }, row.name),
+          h('div', { style: styles.meta }, h('span', null, `${t('owner')}: ${ownerText(row)}`), h('span', null, scopeText(row))),
+          row.description ? h('p', { style: styles.muted }, row.description) : null))) : null))
     }
 
-    function ManagerPage({ list, manager, forms, loadSkills, readSessionId, watchSessions, t }) {
+    function ManagerPage({ list, manager, forms, loadSkills, loadTools, readSessionId, watchSessions, t }) {
       const initialTab = readStoredTab()
       const [tab, setTab] = React.useState(initialTab)
       const [visited, setVisited] = React.useState([initialTab])
@@ -343,10 +382,10 @@ window.__ModuleLoader__.load({
       const [revision, setRevision] = React.useState(0)
       const [busy, setBusy] = React.useState('')
       const [notice, setNotice] = React.useState('')
-      const [preview, setPreview] = React.useState(null)
       const [sessionId, setSessionId] = React.useState(() => typeof readSessionId === 'function' ? readSessionId() : undefined)
       const [skills, setSkills] = React.useState({ kind: 'loading' })
       const [skillsRevision, setSkillsRevision] = React.useState(0)
+      const [tools, setTools] = React.useState({ kind: 'idle' })
 
       // The catalog follows the active session: opening one (or switching) reloads it without a
       // manual refresh, which is what a Host that requires a live session for `skills/list` needs.
@@ -381,16 +420,23 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         let live = true
         Promise.resolve().then(async () => {
-          const [inventoryResult, pluginResult, healthResult, settingsResult] = await Promise.allSettled([
+          const [inventoryResult, settingsResult] = await Promise.allSettled([
             list(),
-            manager?.listPlugins ? manager.listPlugins() : Promise.reject(new Error('unavailable')),
-            manager?.getHealthSnapshot ? manager.getHealthSnapshot() : Promise.reject(new Error('unavailable')),
             forms?.describe ? forms.describe().ensure().then(() => forms.describe().getSnapshot()) : Promise.reject(new Error('unavailable')),
           ])
           if (inventoryResult.status !== 'fulfilled') throw inventoryResult.reason
-          const inventory = inventoryResult.value
-          const plugins = pluginResult.status === 'fulfilled' ? unwrap(pluginResult.value, 'pluginManager.listPlugins') : []
-          const health = healthResult.status === 'fulfilled' ? unwrap(healthResult.value, 'pluginManager.getHealthSnapshot') : undefined
+          const inventory = readInventory(inventoryResult.value)
+          // The official Host projects the Loader, so entries are the plugin list and a failed
+          // fiber is the finding; the older inventory's separate health snapshot no longer exists.
+          const plugins = inventory.entries.map(entry => ({
+            ...entry,
+            ...(inventory.managementAvailable ? {} : { readOnlyReason: entry.readOnlyReason ?? 'management-required' }),
+          }))
+          const health = {
+            pluginCount: plugins.length,
+            enabledCount: plugins.filter(row => row.enabled).length,
+            findings: findingsOf(plugins),
+          }
           const settings = settingsResult.status === 'fulfilled' ? settingsResult.value.view : undefined
           const provenance = new Map()
           if (settings && manager?.getConfigProvenance) {
@@ -413,6 +459,20 @@ window.__ModuleLoader__.load({
         return () => { live = false }
       }, [list, manager, forms, revision])
 
+      // The tool registry is session-wide Host state and the route scans package sources once, so
+      // it loads when the view is first opened, and again only when the page is refreshed.
+      React.useEffect(() => {
+        if (tab !== 'tools' || typeof loadTools !== 'function') return undefined
+        if (tools.kind !== 'idle' && tools.revision === revision) return undefined
+        let live = true
+        setTools({ kind: 'loading', revision })
+        Promise.resolve()
+          .then(() => loadTools())
+          .then(result => { if (live) setTools({ ...result, revision }) })
+          .catch(() => { if (live) setTools({ kind: 'error', revision }) })
+        return () => { live = false }
+      }, [loadTools, tab, revision, tools.kind, tools.revision])
+
       const refresh = () => {
         setState(current => ({ kind: 'loading', snapshot: current.snapshot }))
         setRevision(value => value + 1)
@@ -426,9 +486,10 @@ window.__ModuleLoader__.load({
       }
 
       const applyNotice = result => {
-        setNotice(result.application === 'applied' ? t('changeApplied')
-          : result.application === 'restart-required' ? t('restartRequired')
-          : result.application === 'overridden' ? t('changeOverridden')
+        setNotice(result?.application === 'applied' ? t('changeApplied')
+          : result?.application === 'restart-required' ? t('restartRequired')
+          : result?.application === 'overridden' ? t('changeOverridden')
+          : result?.application === 'cancelled' ? t('changeCancelled')
           : t('changeFailed'))
       }
 
@@ -445,39 +506,6 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const makePreview = async (finding, targetEntryId) => {
-        setBusy(finding.id)
-        setPreview(null)
-        try {
-          const next = unwrap(await manager.previewRemediation({ findingId: finding.id, targetEntryId }), 'pluginManager.previewRemediation')
-          if (next.requiresConfirmation) setPreview(next)
-          else {
-            applyNotice(unwrap(await manager.applyRemediation(next.previewId, false), 'pluginManager.applyRemediation'))
-            refresh()
-          }
-        } catch (_error) {
-          setNotice(t('previewOrRepairFailed'))
-        } finally {
-          setBusy('')
-        }
-      }
-
-      const applyPreview = async () => {
-        if (!preview) return
-        setBusy(preview.previewId)
-        try {
-          applyNotice(unwrap(await manager.applyRemediation(preview.previewId, preview.requiresConfirmation), 'pluginManager.applyRemediation'))
-          setPreview(null)
-          refresh()
-        } catch (_error) {
-          setNotice(t('stalePreview'))
-          setPreview(null)
-          refresh()
-        } finally {
-          setBusy('')
-        }
-      }
-
       const current = state.snapshot
       const inventory = current?.inventory
       const plugins = current?.plugins ?? []
@@ -486,14 +514,20 @@ window.__ModuleLoader__.load({
       const needle = query.trim().toLocaleLowerCase()
       const matches = values => !needle || values.filter(Boolean).some(value => String(value).toLocaleLowerCase().includes(needle))
       const pluginRows = plugins.filter(row => matches([row.moduleName, row.entryId, row.meta?.title, row.meta?.description]))
-      const findings = (health?.findings ?? []).filter(row => matches([row.id, row.code, row.evidence?.name, row.evidence?.serverName, row.evidence?.packageName]))
-      const toolRows = (inventory?.toolRegistrations ?? []).filter(row => matches([row.name, row.owner?.moduleName, row.owner?.entryId]))
+      const findings = (health?.findings ?? []).filter(row => matches([row.id, row.code, row.evidence?.name, row.evidence?.detail]))
+      // Legacy Hosts answered the inventory with registrations of their own; a Host served by this
+      // package answers the `/api` route instead, so either source fills the same rows.
+      const legacyRows = (inventory?.toolRegistrations ?? []).filter(row => matches([row.name, row.owner?.moduleName, row.owner?.entryId]))
+      const routeRows = tools.kind === 'ready' ? (tools.rows ?? []) : []
+      const toolRows = (routeRows.length > 0 ? routeRows : legacyRows).filter(row => matches([row.name, row.owner?.moduleName, row.owner?.entryId, row.owner?.serverName, row.agentId]))
+      const toolsView = tools.kind === 'ready' || legacyRows.length > 0 ? { kind: 'ready', rows: toolRows } : tools
+      const canManage = inventory !== undefined && inventory.managementAvailable && typeof manager?.setPluginEnabled === 'function'
 
       const tabs = [
         { id: 'plugins', label: t('tabs.plugins'), count: plugins.length },
         { id: 'config', label: t('tabs.config'), count: settings?.namespaces?.length },
         { id: 'skill', label: t('tabs.skill'), count: skills?.kind === 'ready' ? skills.items.length : undefined },
-        { id: 'tools', label: t('tabs.tools'), count: toolRows.length },
+        { id: 'tools', label: t('tabs.tools'), count: toolsView.kind === 'ready' ? toolRows.length : undefined },
       ]
 
       const panel = (id, children) => visited.includes(id) ? h('div', {
@@ -510,7 +544,7 @@ window.__ModuleLoader__.load({
         [health?.enabledCount ?? plugins.filter(row => row.enabled).length, 'enabled'],
         [health ? health.findings.length : '—', 'findings'],
         [skills?.kind === 'ready' ? skills.items.length : '—', 'skills'],
-        [inventory ? toolRows.length : '—', 'toolsStat'],
+        [toolsView.kind === 'ready' ? toolRows.length : '—', 'toolsStat'],
       ]
       const showStats = state.kind === 'ready' && current !== undefined
 
@@ -533,14 +567,13 @@ window.__ModuleLoader__.load({
           h('p', { style: styles.message }, t('error')),
           h('button', { type: 'button', style: styles.button, onClick: refresh }, t('retry'))) : null,
         notice ? h('p', { role: 'status', style: styles.message }, notice) : null,
-        !health && state.kind === 'ready' ? h('p', { role: 'status', style: styles.message }, t('diagnosticsUnavailable')) : null,
         panel('plugins', h(PluginsPanel, {
-          pluginRows, findings, plugins, query: needle, busy, preview,
-          onToggle: toggle, onPreview: makePreview, onApplyPreview: applyPreview, onCancelPreview: () => { setPreview(null) }, t,
+          pluginRows, findings, plugins, query: needle, busy, canManage,
+          onToggle: toggle, t,
         })),
         panel('config', h(ConfigPanel, { settings, settingsReady: settings !== undefined, plugins, forms, provenance: current?.provenance, t })),
         panel('skill', h(SkillPanel, { skills, needle, onRetry: refresh, t })),
-        panel('tools', h(ToolsPanel, { inventory, toolRows, needle, t })))
+        panel('tools', h(ToolsPanel, { tools: toolsView, toolRows, rows: toolRows, needle, onRetry: refresh, t })))
     }
 
     return {
@@ -559,8 +592,9 @@ window.__ModuleLoader__.load({
           skillIntro: '当前会话可用的 Skill 目录，按会话工作目录解析，并随会话切换自动刷新；模型可调用与仅用户可调用的条目分开标记。',
           toolsIntro: '运行时工具注册清单，以及每个工具由哪个插件提供、作用于哪个范围。',
           toolsMcpNote: 'MCP 服务器的添加与连接配置由 Host 的 MCP 设置页负责；这里只做插件侧的注册归属诊断，不再重复列出 MCP 服务器。',
-          error: '无法读取运行时清单。', retry: '重试', noRows: '暂无记录。', noMatches: '没有匹配的记录。', diagnosticsUnavailable: '此 Harness Host 尚未提供诊断接口；当前显示可用的插件和注册清单。',
-          inventoryUnavailable: '此 Host 未提供运行时清单接口，工具注册信息不可用。',
+          error: '无法读取运行时清单。', retry: '重试', noRows: '暂无记录。', noMatches: '没有匹配的记录。',
+          loadingTools: '正在读取工具注册清单…', toolInventoryUnavailable: '此 Host 未提供工具注册清单路由（/api/wj/tool-inventory），工具视图不可用。', toolInventoryError: '无法读取工具注册清单。',
+          ownerUnknown: '未记录（Host 未暴露归属）', ownerMcp: 'MCP 服务器', ownerInferred: '推断',
           findingsTitle: '健康诊断', pluginsTitle: '插件', configurationTitle: '配置管理', plugins: '插件', enabled: '已启用', findings: '发现项', severity: '严重程度', affected: '相关插件', evidence: '证据',
           configEmpty: 'Host 未暴露可编辑的配置命名空间。', configUnavailable: '此 Host 未提供设置表单接口，配置视图不可用。',
           skillsTitle: 'Skill 目录', skillEmpty: '当前会话没有可用的 Skill。', skillUnsupported: '此 Host 未提供 skills 接口，Skill 目录不可用。', skillNoSession: '尚无可用会话。打开或切换会话后，这里会自动加载，无需刷新。', skillError: '无法读取 Skill 目录。', loadingSkills: '正在读取 Skill 目录…',
@@ -570,8 +604,7 @@ window.__ModuleLoader__.load({
           'bundle.compatibility-rejected': '组合包版本不兼容', 'bundle.dependency-invalid': '所选依赖无效', severityError: '错误', severityWarning: '警告', severityInfo: '提示', warning: '警告', info: '提示',
           source: '配置来源', shadowed: '被覆盖来源', sourceUnknown: '未知（Host 未提供来源）', bundle: '组合包', profile: 'Profile', home: 'Home', invocation: '本次启动',
           save: '保存', reset: '恢复继承值', saved: '已保存', revisionConflict: '配置已被其他操作修改；草稿仍保留，请刷新后重试。', saveFailed: '保存失败，草稿已保留。', invalidNumber: '请输入有效数字。', loadingForm: '正在载入表单…', formUnavailable: '此配置表单当前不可用。', noSchemaFields: '没有可编辑的 schema 字段。', secretsHidden: '密钥字段已隐藏（{count} 项）。',
-          previewRepair: '诊断并修复 {name}', repairPreview: '修复预览', target: '目标', effect: '影响', disablePlugin: '关闭插件', risk: '风险', low: '低', high: '高', reversible: '可撤销', notReversible: '不可撤销', applyRepair: '执行修复', confirmRepair: '确认并执行', cancel: '取消', previewOrRepairFailed: '无法预览或执行此修复。', stalePreview: '修复预览已过期或状态已变化，请重新加载后再试。',
-          changeApplied: '设置已保存并应用。', restartRequired: '设置已保存；重启后生效。', changeOverridden: '设置已保存，但被更高优先级配置覆盖。', changeFailed: 'Host 未能应用此更改。',
+          changeApplied: '设置已保存并应用。', restartRequired: '设置已保存；重启后生效。', changeOverridden: '设置已保存，但被更高优先级配置覆盖。', changeCancelled: 'Host 取消了此更改，未做修改。', changeFailed: 'Host 未能应用此更改。',
           enable: '启用', disable: '停用', disabled: '已停用', enabledTag: '已启用', disabledTag: '已停用', active: '运行中', failed: '失败', loadingPhase: '加载中', pending: '等待中', unloading: '卸载中', notRunning: '未运行',
           skillReadOnly: 'Skill 的启用与停用由 profile 的 skills 目录与指令文件决定；本 Host 未提供开关接口，因此这里只读展示当前会话可见的条目。',
           'management-required': '管理服务受保护', unaddressable: '此条目无法通过当前 Profile 修改', activationFailed: '插件未能完成启动。', owner: '所属插件', tools: '工具注册', global: '全局', scoped: '作用域',
@@ -585,8 +618,9 @@ window.__ModuleLoader__.load({
           skillIntro: 'Skills available to the current session, resolved from its working directory and reloaded automatically when the session changes; model-invocable and user-only entries are marked separately.',
           toolsIntro: 'Runtime tool registrations, with the plugin that provides each tool and the scope it applies to.',
           toolsMcpNote: 'Adding and connecting MCP servers belongs to the Host’s MCP settings page; this view covers plugin-side ownership only and deliberately lists no MCP servers of its own.',
-          error: 'The runtime inventory could not be read.', retry: 'Retry', noRows: 'No records.', noMatches: 'No matching records.', diagnosticsUnavailable: 'This Harness Host does not expose diagnostics yet. Available plugin and registration inventories are still shown.',
-          inventoryUnavailable: 'This Host does not expose the runtime inventory; tool registrations are unavailable.',
+          error: 'The runtime inventory could not be read.', retry: 'Retry', noRows: 'No records.', noMatches: 'No matching records.',
+          loadingTools: 'Reading the tool registry…', toolInventoryUnavailable: 'This Host does not serve the tool registry route (/api/wj/tool-inventory); the tool view is unavailable.', toolInventoryError: 'The tool registry could not be read.',
+          ownerUnknown: 'Not recorded (the Host exposes no owner)', ownerMcp: 'MCP server', ownerInferred: 'inferred',
           findingsTitle: 'Health findings', pluginsTitle: 'Plugins', configurationTitle: 'Configuration', plugins: 'plugins', enabled: 'enabled', findings: 'findings', severity: 'Severity', affected: 'Affected plugins', evidence: 'Evidence',
           configEmpty: 'The Host exposes no editable configuration namespaces.', configUnavailable: 'This Host does not expose settings forms; configuration is unavailable.',
           skillsTitle: 'Skill catalog', skillEmpty: 'The current session has no available skills.', skillUnsupported: 'This Host does not expose the skills interface; the catalog is unavailable.', skillNoSession: 'No session yet. Open or switch a session and this view loads automatically — no refresh needed.', skillError: 'The skill catalog could not be read.', loadingSkills: 'Reading the skill catalog…',
@@ -596,8 +630,7 @@ window.__ModuleLoader__.load({
           'bundle.compatibility-rejected': 'Bundle version is incompatible', 'bundle.dependency-invalid': 'Selected dependency is invalid', severityError: 'Error', severityWarning: 'Warning', severityInfo: 'Info', warning: 'Warning', info: 'Info',
           source: 'Configuration source', shadowed: 'Shadowed sources', sourceUnknown: 'Unknown (Host did not provide a source)', bundle: 'Bundle', profile: 'Profile', home: 'Home', invocation: 'This launch',
           save: 'Save', reset: 'Reset to inherited value', saved: 'Saved', revisionConflict: 'Configuration changed elsewhere. Your draft is kept; refresh before retrying.', saveFailed: 'Save failed. Your draft is kept.', invalidNumber: 'Enter a valid number.', loadingForm: 'Loading form…', formUnavailable: 'This configuration form is unavailable.', noSchemaFields: 'No editable schema fields.', secretsHidden: '{count} secret fields are hidden.',
-          previewRepair: 'Diagnose and repair {name}', repairPreview: 'Repair preview', target: 'Target', effect: 'Effect', disablePlugin: 'Disable plugin', risk: 'Risk', low: 'Low', high: 'High', reversible: 'Reversible', notReversible: 'Not reversible', applyRepair: 'Apply repair', confirmRepair: 'Confirm and apply', cancel: 'Cancel', previewOrRepairFailed: 'Could not preview or apply this repair.', stalePreview: 'The preview expired or state changed. Reload and preview the repair again.',
-          changeApplied: 'The change was saved and applied.', restartRequired: 'The change was saved and will apply after restart.', changeOverridden: 'The change was saved but overridden by a higher-priority configuration.', changeFailed: 'The Host could not apply this change.',
+          changeApplied: 'The change was saved and applied.', restartRequired: 'The change was saved and will apply after restart.', changeOverridden: 'The change was saved but overridden by a higher-priority configuration.', changeCancelled: 'The Host cancelled this change; nothing was modified.', changeFailed: 'The Host could not apply this change.',
           enable: 'Enable', disable: 'Disable', disabled: 'Disabled', enabledTag: 'Enabled', disabledTag: 'Disabled', active: 'Active', failed: 'Failed', loadingPhase: 'Loading', pending: 'Pending', unloading: 'Unloading', notRunning: 'Not running',
           skillReadOnly: 'Skills are enabled by the profile’s skills directories and instruction files; this Host exposes no toggle, so the catalog is read-only.',
           'management-required': 'Management service is protected', unaddressable: 'This entry cannot be changed by the current profile', activationFailed: 'The plugin did not finish starting.', owner: 'Owner', tools: 'Tool registrations', global: 'Global', scoped: 'Scoped',
@@ -616,6 +649,24 @@ window.__ModuleLoader__.load({
           const inventory = namespace('pluginInventory')
           if (!inventory || typeof inventory.list !== 'function') throw new Error('pluginInventory.list: unavailable')
           return unwrap(await inventory.list(), 'pluginInventory.list')
+        }
+        // The Host half publishes the tool registry on the shared authenticated `/api` channel:
+        // `ctx.remote` carries no tool namespace and a Client plugin cannot add one.
+        const loadTools = async () => {
+          if (typeof fetch !== 'function') return { kind: 'unavailable' }
+          let response
+          try {
+            response = await fetch(TOOL_INVENTORY_URL, { credentials: 'same-origin', headers: { accept: 'application/json' } })
+          } catch (_error) {
+            return { kind: 'error' }
+          }
+          if (!response || response.ok !== true) return { kind: 'unavailable' }
+          try {
+            const body = await response.json()
+            return { kind: 'ready', rows: Array.isArray(body?.tools) ? body.tools : [] }
+          } catch (_error) {
+            return { kind: 'error' }
+          }
         }
         const forms = service('configForms')
 
@@ -670,7 +721,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('plugins.tab', () => ctx.slots.register({
           name: 'plugins.tab', id: 'wj-registration-inventory', order: 20,
           label: () => t('tab'), locale: NS,
-          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, readSessionId: activeSessionId, watchSessions }),
+          inject: () => ({ list, manager: namespace('pluginManager'), forms, loadSkills, loadTools, readSessionId: activeSessionId, watchSessions }),
         }, ManagerPage))
       },
     }

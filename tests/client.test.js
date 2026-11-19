@@ -135,7 +135,16 @@ const configView = {
  */
 function createPage(options = {}) {
   let bundle
-  runInNewContext(source, { window: { __ModuleLoader__: { load(next) { bundle = next } } } })
+  const toolCalls = []
+  // The Host half serves the registry on `/api/wj/tool-inventory`; this stub plays that route so the
+  // page can be driven without a Host.
+  const fetch = async (url, init) => {
+    toolCalls.push({ url, init })
+    if (options.toolRoute === 'missing') return { ok: false, status: 404 }
+    if (options.toolRoute === 'offline') throw new Error('offline')
+    return { ok: true, status: 200, json: async () => ({ tools: options.tools ?? [] }) }
+  }
+  runInNewContext(source, { window: { __ModuleLoader__: { load(next) { bundle = next } } }, fetch })
   assert.ok(bundle, 'client bundle should register with the module loader')
 
   const runtime = createRuntime()
@@ -181,32 +190,29 @@ function createPage(options = {}) {
       }
     },
   }
+  // The official Host shaped this surface twice: `pluginInventory.list()` now projects the Loader
+  // (`entries`, `managementAvailable`), and `pluginManager` only manages profile files. Neither
+  // carries a tool registry, which is why the page reads its own `/api` route for that.
   const manager = {
-    listPlugins: async () => ({
-      ok: true,
-      value: [
-        { entryId: 'plugin-one', moduleName: 'plugin-one', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Plugin One' } } },
-        { entryId: 'plugin-two', moduleName: 'plugin-two', enabled: false, fiberPhase: 'notRunning', meta: { title: { en: 'Plugin Two' } } },
-      ],
-    }),
-    getHealthSnapshot: async () => ({
-      ok: true,
-      value: { pluginCount: 2, enabledCount: 1, findings: [{ id: 'f1', code: 'tool.duplicate-name', severity: 'error', affectedEntryIds: ['plugin-two'], remediationEntryIds: [], evidence: { name: 'read_file' } }] },
-    }),
     getConfigProvenance: async () => ({ ok: true, value: [{ fieldPath: ['label'], effective: { layer: 'profile', identity: 'web' }, shadowed: [] }] }),
     setPluginEnabled: async (entryId, enabled) => {
       enabledWrites.push([entryId, enabled])
-      return { ok: true, value: { application: 'applied' } }
+      return { ok: true, value: { changed: true, application: 'applied', stage: 'enable', target: entryId, enabled } }
     },
   }
+  const entries = options.entries ?? [
+    { entryId: 'plugin-one', moduleName: 'plugin-one', enabled: true, fiberPhase: 'active', meta: { title: { en: 'Plugin One' } } },
+    { entryId: 'plugin-two', moduleName: 'plugin-two', enabled: false, fiberPhase: 'failed', diagnostic: 'boom: missing service', meta: { title: { en: 'Plugin Two' } } },
+  ]
   const list = async () => ({
     ok: true,
-    value: {
-      toolRegistrations: [{ name: 'read_file', scope: 'global', owner: { moduleName: 'fs-plugin', entryId: 'fs' } }],
-      // The Host registry still reports MCP clients; this page must not render them, because the
-      // MCP settings bundle already owns that list.
-      mcpClients: [{ serverName: 'chrome', state: 'connected', owner: { moduleName: 'mcp-plugin', entryId: 'mcp' }, toolNames: ['take_screenshot', 'navigate'] }],
-    },
+    value: options.legacy
+      // A Host that answers with the older snapshot still fills the plugin view.
+      ? {
+        toolRegistrations: [{ name: 'read_file', scope: 'global', owner: { moduleName: 'fs-plugin', entryId: 'fs' } }],
+        mcpClients: [{ serverName: 'chrome', state: 'connected', owner: { moduleName: 'mcp-plugin', entryId: 'mcp' }, toolNames: ['take_screenshot', 'navigate'] }],
+      }
+      : { entries, managementAvailable: options.managementAvailable !== false },
   })
 
   const plugin = bundle.factory(name => name === 'react' ? runtime.React : undefined)
@@ -258,6 +264,7 @@ function createPage(options = {}) {
     definition: registered.definition,
     skillsCalls,
     enabledWrites,
+    toolCalls,
     settle,
     get tree() { return tree },
     tabs,
@@ -280,7 +287,13 @@ function createPage(options = {}) {
 }
 
 test('the management page switches between plugin, configuration, skill and tool views', async () => {
-  const page = createPage({ sessionsById: { 'sess-1': { id: 'sess-1', cwd: 'E:/home', retainedBy: { mainView: 1 } } } })
+  const page = createPage({
+    sessionsById: { 'sess-1': { id: 'sess-1', cwd: 'E:/home', retainedBy: { mainView: 1 } } },
+    tools: [
+      { name: 'read_file', scope: 'global', description: 'Read a file', owner: { kind: 'package', moduleName: 'fs-plugin', entryId: 'fs', inferred: true } },
+      { name: 'mcp__chrome__take_screenshot', scope: 'agent', agentId: 'sess-1', owner: { kind: 'mcp', serverName: 'chrome' } },
+    ],
+  })
   await page.settle()
 
   // client.js is evaluated in a separate VM context, so its arrays have a different prototype.
@@ -295,7 +308,10 @@ test('the management page switches between plugin, configuration, skill and tool
   assert.deepEqual(page.tabs().map(tab => tab.props['aria-selected']), ['true', 'false', 'false', 'false'])
   assert.equal(page.panelById('wj-panel-config'), undefined)
   assert.ok(page.text().includes('Plugin One'))
-  assert.ok(page.text().includes('tool.duplicate-name'))
+  // The Loader projection is the diagnosis: a failed fiber is the finding, with its own diagnostic.
+  assert.ok(page.text().includes('plugin.activation-failed'))
+  assert.ok(page.text().includes('boom: missing service'))
+  assert.ok(!page.text().includes('diagnosticsUnavailable'), 'a Host that projects the Loader needs no fallback notice')
   assert.equal(find(page.tree, node => node.type === 'button' && textOf(node) === 'disable').length, 1)
 
   await page.clickTab('wj-tab-config')
@@ -315,11 +331,15 @@ test('the management page switches between plugin, configuration, skill and tool
   assert.ok(textOf(page.panelById('wj-panel-skill')).includes('E:/skills/office-xlsx/SKILL.md'))
 
   await page.clickTab('wj-tab-tools')
+  // The registry route is read once on first visit, with same-origin credentials.
+  assert.equal(page.toolCalls.length, 1)
+  assert.equal(page.toolCalls[0].url, '/api/wj/tool-inventory')
+  assert.equal(page.toolCalls[0].init?.credentials, 'same-origin')
   const tools = textOf(page.panelById('wj-panel-tools'))
   assert.ok(tools.includes('read_file') && tools.includes('fs-plugin'), 'tool ownership should render')
-  // The MCP page owns MCP servers; a second list here is what collided with it.
-  assert.ok(!tools.includes('chrome'), 'MCP servers must not be listed by this page')
-  assert.ok(!tools.includes('take_screenshot'), 'MCP tool names must not be listed by this page')
+  assert.ok(tools.includes('ownerInferred'), 'a package-scan attribution must be labelled as inferred')
+  assert.ok(tools.includes('mcp__chrome__take_screenshot') && tools.includes('chrome'), 'MCP tools are tools, owned by their server')
+  assert.ok(tools.includes('sess-1'), 'an agent-scoped registration shows its scope')
   assert.equal(find(page.tree, node => node.props?.role === 'tabpanel').length, 4)
 
   page.search('office')
@@ -390,11 +410,14 @@ test('the tab registers on a Host that mounts no optional services', async () =>
   assert.ok(find(page.tree, node => node.type === 'button' && textOf(node) === 'retry').length >= 1, 'the failure should offer a retry')
 })
 
-test('the page exposes tool ownership without competing with the MCP settings page', async () => {
+test('tool rows come from the Host route and never from a second MCP surface', async () => {
   // @tinyforge/dsh-mcp-settings owns the MCP page: it registers `settings.section` id `mcp` and
   // reads `mcpClientStatus/list` itself. This tab keeps only the plugin-side diagnostic — which
   // plugin registered a tool — and reads no MCP client remote, so the two pages cannot drift apart.
-  const page = createPage({ sessionsById: {} })
+  const page = createPage({
+    sessionsById: {},
+    tools: [{ name: 'read_file', scope: 'global', owner: { kind: 'package', moduleName: 'fs-plugin', entryId: 'fs', inferred: true } }],
+  })
   await page.settle()
 
   assert.equal(page.definition.inject().listMcpStatus, undefined, 'the MCP status remote must not be read')
@@ -403,5 +426,45 @@ test('the page exposes tool ownership without competing with the MCP settings pa
   assert.ok(tools.includes('read_file'), 'tool registrations should still render')
   assert.ok(tools.includes('fs-plugin'), 'the owning plugin should render')
   assert.ok(tools.includes('global'), 'the tool scope should render')
-  assert.ok(!tools.includes('chrome'), 'MCP clients stay on the MCP settings page')
+})
+
+test('a Host without the registry route explains itself instead of showing an empty list', async () => {
+  const page = createPage({ sessionsById: {}, toolRoute: 'missing' })
+  await page.settle()
+  await page.clickTab('wj-tab-tools')
+
+  const tools = textOf(page.panelById('wj-panel-tools'))
+  assert.ok(tools.includes('toolInventoryUnavailable'), 'the missing route is named, not silently empty')
+  assert.ok(find(page.tree, node => node.type === 'button' && textOf(node) === 'retry').length >= 1, 'the failure offers an inline retry')
+})
+
+test('an offline registry read is reported as a failure with a retry', async () => {
+  const page = createPage({ sessionsById: {}, toolRoute: 'offline' })
+  await page.settle()
+  await page.clickTab('wj-tab-tools')
+
+  assert.ok(textOf(page.panelById('wj-panel-tools')).includes('toolInventoryError'))
+})
+
+test('a legacy inventory snapshot still fills the plugin and tool views', async () => {
+  // Older Hosts answered `pluginInventory.list()` with registrations of their own; the plugin view
+  // keeps reading those rows so a downgrade or a plain older build is not rendered empty.
+  const page = createPage({ sessionsById: {}, legacy: true })
+  await page.settle()
+  await page.clickTab('wj-tab-tools')
+
+  const tools = textOf(page.panelById('wj-panel-tools'))
+  assert.ok(tools.includes('read_file'), 'the legacy registration still renders')
+  assert.ok(tools.includes('fs-plugin'), 'its owner still renders')
+  assert.ok(!textOf(page.tree).includes('take_screenshot'), 'the legacy MCP client list stays unrendered')
+})
+
+test('a protected management service renders every control as read-only', async () => {
+  const page = createPage({ sessionsById: {}, managementAvailable: false })
+  await page.settle()
+
+  const button = find(page.tree, node => node.type === 'button' && textOf(node) === 'disable')[0]
+  assert.ok(button, 'the enabled plugin still renders its control')
+  assert.equal(button.props.disabled, true, 'a Host that protects management disables the control')
+  assert.ok(page.text().includes('management-required'))
 })
