@@ -4,11 +4,11 @@
 [![npm downloads](https://img.shields.io/npm/dm/@tinyforge/dsh-plugin-manager-wj.svg)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**WJ Plugin Management** is the Web management layer for DeepSeek Harness's three-layer plugin-management design. It extends the independent WJ bundle and adds a management tab under **Settings → Plugins** whose four views switch without leaving the page: **Plugins**, **Configuration**, **Skills** and **Tools**.
+**WJ Plugin Management** is the Web management layer for DeepSeek Harness's three-layer plugin-management design. It extends the independent WJ bundle and adds a management tab under **Settings → Plugins** whose five views switch without leaving the page: **Plugins**, **Health**, **Configuration**, **Skills** and **Tools**.
 
 ## Features
 
-- **Switchable views:** one tab strip switches between plugin health, configuration, the skill catalog, and tool registration ownership. A visited view stays mounted, so a configuration draft and the search term survive switching.
+- **Switchable views:** one tab strip switches between the plugin list, health findings, configuration, the skill catalog, and tool registration ownership. A visited view stays mounted, so a configuration draft and the search term survive switching.
 - **Harness Core:** consumes the Host's plugin registry, configuration resolver, conflict detector, lifecycle/dependency manager, and settings services.
 - **Management API:** shows plugin state, derived activation findings, configuration provenance, and tool runtime registrations. It can enable or disable profile-addressable plugins.
 - **Management UI:** filters the active view, edits non-secret scalar settings through the existing schema-backed `configForms`, and reports each tool's scope with its owner (an MCP server, or the plugin package the Host half matched). Plugin rows show the package's localized title and introduction; a Loader-internal entry that carries no package metadata states that instead of leaving a blank line.
@@ -17,7 +17,8 @@
 
 | View | Source | Notes |
 | --- | --- | --- |
-| Plugins | the Loader projection from `pluginInventory.list()` | Enable/disable addressable entries; findings are derived from failed fibers and their `diagnostic`. |
+| Plugins | the Loader projection from `pluginInventory.list()` | Enable/disable addressable entries and show each package's localized title and introduction. |
+| Health | the same Loader projection | Derived only from entries whose startup failed (the fiber reached `failed`) and their `diagnostic`; a zero count says no entry failed to start instead of showing "no records". |
 | Configuration | `configForms.describe`, `pluginManager.getConfigProvenance` | Secret fields are omitted; provenance shows layers and redacted identities. |
 | Skills | `skills/list` through the active session | Session-scoped, so the catalog resolves from the session working directory and reloads automatically when the active session changes. Model-invocable and user-only entries are marked separately. |
 | Tools | this package's Host half, `GET /api/wj/tool-inventory` | Runtime tool registrations, with the plugin that provides each tool and the scope it applies to. |
@@ -55,11 +56,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## Release
 
 ```sh
-npm test                        # node --test: 30 checks (views, tool ownership, Host route, inject contract, module id, patch shape)
+npm test                        # node --test: 31 checks (views, findings, tool ownership, Host route, inject contract, module id, patch shape)
 npm publish --access public     # writes to registry.npmjs.org
 ```
 
-The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.6.0 && git push --tags`) so the GitHub history matches the registry.
+The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.7.0 && git push --tags`) so the GitHub history matches the registry.
 
 ## Development
 

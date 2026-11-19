@@ -1,16 +1,20 @@
 {
   "name": "@tinyforge/dsh-plugin-manager-wj",
-  "version": "1.6.0",
-  "description": "Switchable plugin, configuration, skill and tool-ownership views with health diagnostics, configuration provenance, and tool inventory for DeepSeek Harness.",
+  "version": "1.7.0",
+  "description": "Plugin health, configuration provenance, skill catalog and tool-ownership views for DeepSeek Harness; MCP server management is recommended through @tinyforge/dsh-mcp-settings.",
   "type": "module",
   "main": "index.js",
+  "icon": "icon.webp",
   "scripts": { "test": "node --test" },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./icon": "./icon.webp",
+    "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
   },
-  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "README.md", "README.zh.md", "LICENSE"],
+  "files": ["index.js", "client.js", "cordis.patch.yml", "icon.webp", "locale/*.json", "README.md", "README.zh.md", "LICENSE"],
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {

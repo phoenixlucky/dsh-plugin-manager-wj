@@ -4,11 +4,11 @@
 [![npm downloads](https://img.shields.io/npm/dm/@tinyforge/dsh-plugin-manager-wj.svg)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**WJ 插件管理中心**是 DeepSeek Harness 三层插件管理架构的 Web 管理层，扩展现有独立 WJ bundle，并在 **设置 → 插件** 下添加管理标签页。页面内有 **插件 / 配置 / Skill / 工具** 四个视图，可直接切换，不需要离开当前页面。
+**WJ 插件管理中心**是 DeepSeek Harness 三层插件管理架构的 Web 管理层，扩展现有独立 WJ bundle，并在 **设置 → 插件** 下添加管理标签页。页面内有 **插件 / 健康诊断 / 配置 / Skill / 工具** 五个视图，可直接切换，不需要离开当前页面。
 
 ## 功能
 
-- **可切换视图：**一条标签栏在插件健康、配置、Skill 目录与工具注册归属之间切换。已访问过的视图保持挂载，因此切换时配置草稿和搜索词都不会丢失。
+- **可切换视图：**一条标签栏在插件清单、健康诊断、配置、Skill 目录与工具注册归属之间切换。已访问过的视图保持挂载，因此切换时配置草稿和搜索词都不会丢失。
 - **Harness Core：**使用 Host 提供的插件注册表、配置解析、冲突检测、生命周期与依赖管理，以及设置服务。
 - **Management API：**查看插件状态、激活诊断、配置来源和工具运行时注册；可启停当前 Profile 能寻址的插件。
 - **Management UI：**按视图过滤，通过现有 schema 表单 `configForms` 编辑非密钥标量配置；工具视图给出每个工具的作用域与归属（MCP 服务器或推断出的插件包）。插件行显示包本地化的标题与说明；Loader 内部条目若没有包元数据，会明确写出这一点，而不是留空。
@@ -17,7 +17,8 @@
 
 | 视图 | 数据来源 | 说明 |
 | --- | --- | --- |
-| 插件 | `pluginInventory.list()` 的 Loader 投影 | 启停当前 Profile 能寻址的条目，并由失败 fiber 派生激活诊断。 |
+| 插件 | `pluginInventory.list()` 的 Loader 投影 | 启停当前 Profile 能寻址的条目，并显示包本地化的标题与说明。 |
+| 健康诊断 | 同一份 Loader 投影 | 只由启动失败（fiber 进入 `failed`）的条目及其 `diagnostic` 派生；数量为 0 时明确说明没有启动失败，而不是显示"暂无记录"。 |
 | 配置 | `configForms.describe`、`pluginManager.getConfigProvenance` | 隐藏密钥字段；来源只显示层名称与脱敏标识。 |
 | Skill | 通过当前会话读取 `skills/list` | 按会话解析，目录来自会话工作目录，并在活动会话变化时自动重新加载；模型可调用与仅用户可调用分开标记。 |
 | 工具 | 本包 Host 半边的 `GET /api/wj/tool-inventory` | 运行时工具注册清单，以及每个工具由哪个插件提供、作用于哪个范围。 |
@@ -55,11 +56,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## 发布
 
 ```sh
-npm test                        # node --test：30 项检查（视图、工具归属、Host 路由、inject 契约、模块 id、patch 结构）
+npm test                        # node --test：31 项检查（视图、健康诊断、工具归属、Host 路由、inject 契约、模块 id、patch 结构）
 npm publish --access public     # 发布到 registry.npmjs.org
 ```
 
-包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.6.0 && git push --tags`），让 GitHub 历史与 registry 版本对应。
+包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.7.0 && git push --tags`），让 GitHub 历史与 registry 版本对应。
 
 ## 开发
 

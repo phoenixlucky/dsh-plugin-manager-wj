@@ -1,6 +1,7 @@
 {
   "meta": {
-    "title": "WJ 插件管理"
+    "title": "WJ 插件管理",
+    "description": "插件健康诊断、配置来源、Skill 目录与工具注册归属的统一管理页。MCP 服务器管理推荐安装 @tinyforge/dsh-mcp-settings，由它提供 MCP 设置页。"
   },
   "tab": "插件管理",
   "views": {
@@ -18,7 +19,7 @@
   "empty": "当前没有插件或工具记录。",
   "unsupported": "当前 Harness Host 未提供插件管理和运行时清单，请升级 Harness 后管理插件。",
   "tools": "工具注册",
-  "mcpNote": "MCP 服务器的添加与连接由 Host 的 MCP 设置页负责；本页只做插件侧的注册归属诊断。",
+  "mcpNote": "MCP 服务器的添加与连接由 @tinyforge/dsh-mcp-settings 提供的 MCP 设置页负责；本页只做插件侧的注册归属诊断。",
   "owner": "所属插件",
   "scope": "作用域",
   "global": "全局",

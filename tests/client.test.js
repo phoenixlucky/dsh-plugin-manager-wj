@@ -325,15 +325,21 @@ test('the management page switches between plugin, configuration, skill and tool
   assert.equal(typeof page.definition.inject().readSessionId, 'function')
   assert.equal(typeof page.definition.inject().watchSessions, 'function')
 
-  assert.deepEqual(page.tabs().map(tab => tab.props.id), ['wj-tab-plugins', 'wj-tab-config', 'wj-tab-skill', 'wj-tab-tools'])
-  assert.deepEqual(page.tabs().map(tab => tab.props['aria-selected']), ['true', 'false', 'false', 'false'])
+  assert.deepEqual(page.tabs().map(tab => tab.props.id), ['wj-tab-plugins', 'wj-tab-findings', 'wj-tab-config', 'wj-tab-skill', 'wj-tab-tools'])
+  assert.deepEqual(page.tabs().map(tab => tab.props['aria-selected']), ['true', 'false', 'false', 'false', 'false'])
   assert.equal(page.panelById('wj-panel-config'), undefined)
   assert.ok(page.text().includes('Plugin One'))
-  // The Loader projection is the diagnosis: a failed fiber is the finding, with its own diagnostic.
-  assert.ok(page.text().includes('plugin.activation-failed'))
-  assert.ok(page.text().includes('boom: missing service'))
   assert.ok(!page.text().includes('diagnosticsUnavailable'), 'a Host that projects the Loader needs no fallback notice')
   assert.equal(find(page.tree, node => node.type === 'button' && textOf(node) === 'disable').length, 1)
+
+  // Findings are their own view: the failed fiber and its diagnostic live there, not at the top of
+  // the plugin list, and the tab carries the same count as the summary stat.
+  const findingsTab = page.tabs().find(tab => tab.props.id === 'wj-tab-findings')
+  assert.ok(textOf(findingsTab).includes('1'), 'the findings tab shows the finding count')
+  await page.clickTab('wj-tab-findings')
+  assert.ok(textOf(page.panelById('wj-panel-findings')).includes('plugin.activation-failed'))
+  assert.ok(textOf(page.panelById('wj-panel-findings')).includes('boom: missing service'))
+  assert.ok(!textOf(page.panelById('wj-panel-plugins')).includes('plugin.activation-failed'), 'the plugin list no longer repeats findings')
 
   await page.clickTab('wj-tab-config')
   assert.equal(page.panelById('wj-panel-config').props.hidden, false)
@@ -351,17 +357,22 @@ test('the management page switches between plugin, configuration, skill and tool
   assert.ok(textOf(page.panelById('wj-panel-skill')).includes('skillUserOnly'))
   assert.ok(textOf(page.panelById('wj-panel-skill')).includes('E:/skills/office-xlsx/SKILL.md'))
 
-  await page.clickTab('wj-tab-tools')
-  // The registry route is read once on first visit, with same-origin credentials.
-  assert.equal(page.toolCalls.length, 1)
+  // The registry is session-wide Host state, so it is read when the page mounts: the count is in
+  // the summary and the tab before the Tools view is ever opened.
+  assert.equal(page.toolCalls.length, 1, 'the registry route is read once when the page mounts')
   assert.equal(page.toolCalls[0].url, '/api/wj/tool-inventory')
   assert.equal(page.toolCalls[0].init?.credentials, 'same-origin')
+  const toolsTab = page.tabs().find(tab => tab.props.id === 'wj-tab-tools')
+  assert.ok(textOf(toolsTab).includes('2'), 'the tools tab carries its count before the first visit')
+
+  await page.clickTab('wj-tab-tools')
+  assert.equal(page.toolCalls.length, 1, 'opening the view reads nothing a second time')
   const tools = textOf(page.panelById('wj-panel-tools'))
   assert.ok(tools.includes('read_file') && tools.includes('fs-plugin'), 'tool ownership should render')
   assert.ok(tools.includes('ownerInferred'), 'a package-scan attribution must be labelled as inferred')
   assert.ok(tools.includes('mcp__chrome__take_screenshot') && tools.includes('chrome'), 'MCP tools are tools, owned by their server')
   assert.ok(tools.includes('sess-1'), 'an agent-scoped registration shows its scope')
-  assert.equal(find(page.tree, node => node.props?.role === 'tabpanel').length, 4)
+  assert.equal(find(page.tree, node => node.props?.role === 'tabpanel').length, 5)
 
   page.search('office')
   await page.settle()
@@ -470,6 +481,22 @@ test('the tab registers on a Host that mounts no optional services', async () =>
   assert.equal(page.definition.id, 'wj-registration-inventory')
   assert.ok(page.text().includes('error'), 'the page should report the unreadable inventory')
   assert.ok(find(page.tree, node => node.type === 'button' && textOf(node) === 'retry').length >= 1, 'the failure should offer a retry')
+})
+
+test('a healthy plugin set reports zero findings and says so in its own view', async () => {
+  // "0 findings" is a real answer, not an empty list: the view explains what a finding is and why
+  // none exists, instead of falling back to the generic "no records" message.
+  const page = createPage({
+    sessionsById: {},
+    entries: [{ entryId: 'ok', moduleName: 'ok-plugin', enabled: true, fiberPhase: 'active', meta: { title: 'OK plugin' } }],
+  })
+  await page.settle()
+  const findingsTab = page.tabs().find(tab => tab.props.id === 'wj-tab-findings')
+  assert.ok(textOf(findingsTab).includes('0'), 'the findings tab reports the zero count')
+  await page.clickTab('wj-tab-findings')
+  const findings = textOf(page.panelById('wj-panel-findings'))
+  assert.ok(findings.includes('findingsIntro'), 'the view explains what a finding is')
+  assert.ok(findings.includes('findingsEmpty'), 'an empty result is explained rather than shown as no records')
 })
 
 test('tool rows come from the Host route and never from a second MCP surface', async () => {

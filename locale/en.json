@@ -1,6 +1,7 @@
 {
   "meta": {
-    "title": "WJ Plugin Management"
+    "title": "WJ Plugin Management",
+    "description": "One management page for plugin health findings, configuration provenance, the skill catalog and tool ownership. For MCP server management, install @tinyforge/dsh-mcp-settings, which provides the MCP settings page."
   },
   "tab": "Plugin management",
   "views": {
@@ -18,7 +19,7 @@
   "empty": "There are no plugin or tool records yet.",
   "unsupported": "This Harness Host does not provide plugin management and runtime inventory. Upgrade Harness to manage plugins.",
   "tools": "Tool registrations",
-  "mcpNote": "Adding and connecting MCP servers belongs to the Host's MCP settings page; this page covers plugin-side ownership only.",
+  "mcpNote": "Adding and connecting MCP servers belongs to the MCP settings page provided by @tinyforge/dsh-mcp-settings; this page covers plugin-side ownership only.",
   "owner": "Owning plugin",
   "scope": "Scope",
   "global": "Global",

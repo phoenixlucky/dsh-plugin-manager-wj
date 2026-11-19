@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
     const NS = 'settings.pluginManagerWj'
     // MCP server management is owned by the Host's MCP settings bundle, so this page shows no MCP
     // server list of its own: a second list here duplicated that page and read the same remote.
-    const TAB_ORDER = ['plugins', 'config', 'skill', 'tools']
+    const TAB_ORDER = ['plugins', 'findings', 'config', 'skill', 'tools']
     const TAB_KEY = 'dsh-plugin-manager-wj/tab'
     // The Host half serves the tool registry on the shared authenticated `/api` channel; the
     // official Remote table carries no tool namespace, so this route is the only way in.
@@ -284,7 +284,7 @@ window.__ModuleLoader__.load({
         }, h('span', null, item.label), item.count === undefined ? null : h('span', { style: styles.tabCount }, String(item.count)))))
     }
 
-    function PluginsPanel({ pluginRows, findings, plugins, query, busy, canManage, onToggle, resolve, t }) {
+    function PluginsPanel({ pluginRows, query, busy, canManage, onToggle, resolve, t }) {
       // A row's display title and introduction are package metadata, not the module specifier.
       // The Host localizes both; a Loader-internal entry that carries no package metadata says so
       // instead of leaving the line empty, so a short technical name is never mistaken for a bug.
@@ -295,24 +295,8 @@ window.__ModuleLoader__.load({
         if (row.meta?.error) return resolve(row.meta.error) || row.meta.error
         return row.meta === undefined ? t('pluginNoMeta') : t('pluginNoDescription')
       }
-      const severity = value => t(SEVERITY_KEY[value] ?? 'severityInfo')
       return h('div', { style: styles.page },
         h('p', { style: styles.description }, t('pluginsIntro')),
-        h(Section, { id: 'findings', title: t('findingsTitle'), count: `${findings.length} ${t('items')}`, empty: t(query ? 'noMatches' : 'noRows') },
-          findings.length ? h('ul', { style: styles.list }, findings.map(finding => {
-            const severe = finding.severity === 'error'
-            const affected = finding.affectedEntryIds.map(id => plugins.find(plugin => plugin.entryId === id)?.moduleName ?? id).join(', ')
-            return h('li', { key: finding.id, style: styles.row },
-              h('div', { style: styles.rowHead },
-                h('div', null,
-                  h('h3', { style: styles.rowTitle }, t(finding.code)),
-                  h('div', { style: styles.meta }, h('span', null, `${t('severity')}: ${severity(finding.severity)}`), affected ? h('span', null, `${t('affected')}: ${affected}`) : null)),
-                h('span', { style: { ...styles.badge, ...(severe ? styles.error : styles.warning) } }, severity(finding.severity))),
-              finding.evidence?.name || finding.evidence?.serverName || finding.evidence?.packageName
-                ? h('div', { style: styles.meta }, `${t('evidence')}: ${finding.evidence.name ?? finding.evidence.serverName ?? finding.evidence.packageName}`)
-                : null,
-              finding.evidence?.detail ? h('p', { style: { ...styles.message, padding: '4px 0 0' } }, finding.evidence.detail) : null)
-          })) : null),
         h(Section, { id: 'plugins', title: t('pluginsTitle'), count: `${pluginRows.length} ${t('items')}`, empty: t(query ? 'noMatches' : 'noRows') },
           pluginRows.length ? h('ul', { style: styles.list }, pluginRows.map(row => h('li', { key: row.entryId, style: styles.row },
             h('div', { style: styles.rowHead },
@@ -326,6 +310,31 @@ window.__ModuleLoader__.load({
                 onClick: () => { void onToggle(row) },
               }, t(row.enabled ? 'disable' : 'enable'))),
             row.diagnostic ? h('p', { style: styles.meta }, t('activationFailed')) : null))) : null))
+    }
+
+    // Findings answer "is anything broken", which is a different question from "which plugin is
+    // enabled", so they get their own view and tab instead of hiding at the top of the plugin list.
+    function FindingsPanel({ findings, plugins, query, t }) {
+      const severity = value => t(SEVERITY_KEY[value] ?? 'severityInfo')
+      return h('div', { style: styles.page },
+        h('p', { style: styles.description }, t('findingsIntro')),
+        h(Section, {
+          id: 'findings', title: t('findingsTitle'), count: `${findings.length} ${t('items')}`,
+          empty: t(query ? 'noMatches' : 'findingsEmpty'),
+        }, findings.length ? h('ul', { style: styles.list }, findings.map(finding => {
+          const severe = finding.severity === 'error'
+          const affected = finding.affectedEntryIds.map(id => plugins.find(plugin => plugin.entryId === id)?.moduleName ?? id).join(', ')
+          return h('li', { key: finding.id, style: styles.row },
+            h('div', { style: styles.rowHead },
+              h('div', null,
+                h('h3', { style: styles.rowTitle }, t(finding.code)),
+                h('div', { style: styles.meta }, h('span', null, `${t('severity')}: ${severity(finding.severity)}`), affected ? h('span', null, `${t('affected')}: ${affected}`) : null)),
+              h('span', { style: { ...styles.badge, ...(severe ? styles.error : styles.warning) } }, severity(finding.severity))),
+            finding.evidence?.name || finding.evidence?.serverName || finding.evidence?.packageName
+              ? h('div', { style: styles.meta }, `${t('evidence')}: ${finding.evidence.name ?? finding.evidence.serverName ?? finding.evidence.packageName}`)
+              : null,
+            finding.evidence?.detail ? h('p', { style: { ...styles.message, padding: '4px 0 0' } }, finding.evidence.detail) : null)
+        })) : null))
     }
 
     function ConfigPanel({ settings, settingsReady, plugins, forms, provenance, t }) {
@@ -487,8 +496,9 @@ window.__ModuleLoader__.load({
         return () => { live = false }
       }, [list, manager, forms, revision])
 
-      // The tool registry is session-wide Host state and the route scans package sources once, so
-      // it loads when the view is first opened, and again only when the page is refreshed.
+      // The tool registry is session-wide Host state, so it loads as soon as this page mounts rather
+      // than when the Tools view is opened: the summary stat and the tab count would otherwise read
+      // "—" until the first visit, which looks like a broken read. It reloads on refresh.
       //
       // The loaded revision is held in a ref rather than in this effect's dependencies. A dependency
       // on `tools` re-ran this effect right after it set the loading state; React then disposed the
@@ -497,7 +507,7 @@ window.__ModuleLoader__.load({
       // resolve the read before the cleanup, which is why it never showed).
       const loadedToolsRevision = React.useRef(undefined)
       React.useEffect(() => {
-        if (tab !== 'tools' || typeof loadTools !== 'function') return undefined
+        if (typeof loadTools !== 'function') return undefined
         if (loadedToolsRevision.current === revision) return undefined
         let live = true
         setTools({ kind: 'loading', revision })
@@ -511,7 +521,7 @@ window.__ModuleLoader__.load({
           })
           .catch(() => { if (live) setTools({ kind: 'error', revision }) })
         return () => { live = false }
-      }, [loadTools, tab, revision])
+      }, [loadTools, revision])
 
       const refresh = () => {
         setState(current => ({ kind: 'loading', snapshot: current.snapshot }))
@@ -575,6 +585,7 @@ window.__ModuleLoader__.load({
 
       const tabs = [
         { id: 'plugins', label: t('tabs.plugins'), count: plugins.length },
+        { id: 'findings', label: t('tabs.findings'), count: findings.length },
         { id: 'config', label: t('tabs.config'), count: settings?.namespaces?.length },
         { id: 'skill', label: t('tabs.skill'), count: skills?.kind === 'ready' ? skills.items.length : undefined },
         { id: 'tools', label: t('tabs.tools'), count: toolsView.kind === 'ready' ? toolRows.length : undefined },
@@ -594,7 +605,7 @@ window.__ModuleLoader__.load({
         [health?.enabledCount ?? plugins.filter(row => row.enabled).length, 'enabled'],
         [health ? health.findings.length : '—', 'findings'],
         [skills?.kind === 'ready' ? skills.items.length : '—', 'skills'],
-        [toolsView.kind === 'ready' ? toolRows.length : '—', 'toolsStat'],
+        [toolsView.kind === 'ready' ? toolRows.length : toolsView.kind === 'loading' ? '…' : '—', 'toolsStat'],
       ]
       const showStats = state.kind === 'ready' && current !== undefined
 
@@ -618,9 +629,10 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', style: styles.button, onClick: refresh }, t('retry'))) : null,
         notice ? h('p', { role: 'status', style: styles.message }, notice) : null,
         panel('plugins', h(PluginsPanel, {
-          pluginRows, findings, plugins, query: needle, busy, canManage,
+          pluginRows, query: needle, busy, canManage,
           onToggle: toggle, resolve, t,
         })),
+        panel('findings', h(FindingsPanel, { findings, plugins, query: needle, t })),
         panel('config', h(ConfigPanel, { settings, settingsReady: settings !== undefined, plugins, forms, provenance: current?.provenance, t })),
         panel('skill', h(SkillPanel, { skills, needle, onRetry: refresh, t })),
         panel('tools', h(ToolsPanel, { tools: toolsView, toolRows, rows: toolRows, needle, onRetry: refresh, t })))
@@ -636,7 +648,7 @@ window.__ModuleLoader__.load({
         const zh = {
           tab: '插件管理', search: '搜索当前视图的插件、配置、Skill 或工具', refresh: '刷新', loading: '正在读取 Host 状态…', loadingShort: '读取中…',
           eyebrow: '插件健康与管理', heading: '插件管理', description: '查看插件状态与冲突，追踪配置来源，浏览 Skill 目录与工具注册归属，并通过受控操作修复问题。', summary: '当前状态', items: '项',
-          viewsLabel: '管理视图', 'tabs.plugins': '插件', 'tabs.config': '配置', 'tabs.skill': 'Skill', 'tabs.tools': '工具',
+          viewsLabel: '管理视图', 'tabs.plugins': '插件', 'tabs.findings': '健康诊断', 'tabs.config': '配置', 'tabs.skill': 'Skill', 'tabs.tools': '工具',
           pluginsIntro: '实时插件清单、健康诊断与启停操作。只列出当前 Profile 可寻址的插件。',
           pluginNoDescription: '该包未声明说明。', pluginNoMeta: 'Loader 内部条目，无包元数据。',
           configIntro: '按 Host schema 编辑非密钥配置，并查看每个字段的有效来源与被覆盖层。',
@@ -646,7 +658,7 @@ window.__ModuleLoader__.load({
           error: '无法读取运行时清单。', retry: '重试', noRows: '暂无记录。', noMatches: '没有匹配的记录。',
           loadingTools: '正在读取工具注册清单…', toolInventoryUnavailable: '此 Host 未提供工具注册清单路由（/api/wj/tool-inventory），工具视图不可用。', toolInventoryError: '无法读取工具注册清单。',
           ownerUnknown: '未记录（Host 未暴露归属）', ownerMcp: 'MCP 服务器', ownerInferred: '推断',
-          findingsTitle: '健康诊断', pluginsTitle: '插件', configurationTitle: '配置管理', plugins: '插件', enabled: '已启用', findings: '发现项', severity: '严重程度', affected: '相关插件', evidence: '证据',
+          findingsTitle: '健康诊断', findingsIntro: '插件健康诊断来自启动失败（fiber 进入 failed）的条目及其失败原因；已停用或尚未加载的条目不算异常。', findingsEmpty: '未发现插件健康问题：当前没有启动失败的条目。', pluginsTitle: '插件', configurationTitle: '配置管理', plugins: '插件', enabled: '已启用', findings: '发现项', severity: '严重程度', affected: '相关插件', evidence: '证据',
           configEmpty: 'Host 未暴露可编辑的配置命名空间。', configUnavailable: '此 Host 未提供设置表单接口，配置视图不可用。',
           skillsTitle: 'Skill 目录', skillEmpty: '当前会话没有可用的 Skill。', skillUnsupported: '此 Host 未提供 skills 接口，Skill 目录不可用。', skillNoSession: '尚无可用会话。打开或切换会话后，这里会自动加载，无需刷新。', skillError: '无法读取 Skill 目录。', loadingSkills: '正在读取 Skill 目录…',
           skillModelInvocable: '模型可调用', skillUserOnly: '仅用户可调用', skillWhenToUse: '适用场景', skillPath: '指令文件',
@@ -663,7 +675,7 @@ window.__ModuleLoader__.load({
         const en = {
           tab: 'Plugin management', search: 'Search the current view for plugins, settings, skills or tools', refresh: 'Refresh', loading: 'Reading Host state…', loadingShort: 'Loading…',
           eyebrow: 'PLUGIN HEALTH AND MANAGEMENT', heading: 'Plugin management', description: 'Review plugin status and conflicts, trace configuration sources, browse the skill catalog and tool ownership, and repair issues through bounded actions.', summary: 'Current status', items: 'items',
-          viewsLabel: 'Management views', 'tabs.plugins': 'Plugins', 'tabs.config': 'Configuration', 'tabs.skill': 'Skills', 'tabs.tools': 'Tools',
+          viewsLabel: 'Management views', 'tabs.plugins': 'Plugins', 'tabs.findings': 'Health', 'tabs.config': 'Configuration', 'tabs.skill': 'Skills', 'tabs.tools': 'Tools',
           pluginsIntro: 'Live plugin inventory, health findings and enable/disable actions. Only plugins addressable by the active profile are listed.',
           pluginNoDescription: 'The package declares no description.', pluginNoMeta: 'Loader-internal entry; no package metadata.',
           configIntro: 'Edit non-secret settings through the Host schema and see each field’s effective source and shadowed layers.',
@@ -673,7 +685,7 @@ window.__ModuleLoader__.load({
           error: 'The runtime inventory could not be read.', retry: 'Retry', noRows: 'No records.', noMatches: 'No matching records.',
           loadingTools: 'Reading the tool registry…', toolInventoryUnavailable: 'This Host does not serve the tool registry route (/api/wj/tool-inventory); the tool view is unavailable.', toolInventoryError: 'The tool registry could not be read.',
           ownerUnknown: 'Not recorded (the Host exposes no owner)', ownerMcp: 'MCP server', ownerInferred: 'inferred',
-          findingsTitle: 'Health findings', pluginsTitle: 'Plugins', configurationTitle: 'Configuration', plugins: 'plugins', enabled: 'enabled', findings: 'findings', severity: 'Severity', affected: 'Affected plugins', evidence: 'Evidence',
+          findingsTitle: 'Health findings', findingsIntro: 'Plugin health findings derive from entries whose startup failed (the fiber reached “failed”) and the diagnostic the Host returned; disabled or not-yet-loaded entries are not findings.', findingsEmpty: 'No plugin health findings: no addressable entry failed to start.', pluginsTitle: 'Plugins', configurationTitle: 'Configuration', plugins: 'plugins', enabled: 'enabled', findings: 'findings', severity: 'Severity', affected: 'Affected plugins', evidence: 'Evidence',
           configEmpty: 'The Host exposes no editable configuration namespaces.', configUnavailable: 'This Host does not expose settings forms; configuration is unavailable.',
           skillsTitle: 'Skill catalog', skillEmpty: 'The current session has no available skills.', skillUnsupported: 'This Host does not expose the skills interface; the catalog is unavailable.', skillNoSession: 'No session yet. Open or switch a session and this view loads automatically — no refresh needed.', skillError: 'The skill catalog could not be read.', loadingSkills: 'Reading the skill catalog…',
           skillModelInvocable: 'Model-invocable', skillUserOnly: 'User-only', skillWhenToUse: 'When to use', skillPath: 'Instruction file',
