@@ -58,11 +58,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## Release
 
 ```sh
-npm test                        # node --test: 31 checks (views, findings, tool ownership, Host route, inject contract, module id, patch shape)
+npm test                        # node --test: 34 checks (views, findings, tool ownership, Host route, package metadata, inject contract, module id, patch shape)
 npm publish --access public     # writes to registry.npmjs.org
 ```
 
-The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.7.0 && git push --tags`) so the GitHub history matches the registry.
+The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.7.1 && git push --tags`) so the GitHub history matches the registry.
 
 ## Development
 
