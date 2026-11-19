@@ -6,6 +6,8 @@
 
 **WJ Plugin Management** is the Web management layer for DeepSeek Harness's three-layer plugin-management design. It extends the independent WJ bundle and adds a management tab under **Settings → Plugins** whose five views switch without leaving the page: **Plugins**, **Health**, **Configuration**, **Skills** and **Tools**.
 
+![WJ Plugin Management: the five management views](docs/screenshot.webp)
+
 ## Features
 
 - **Switchable views:** one tab strip switches between the plugin list, health findings, configuration, the skill catalog, and tool registration ownership. A visited view stays mounted, so a configuration draft and the search term survive switching.

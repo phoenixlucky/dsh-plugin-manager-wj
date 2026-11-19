@@ -14,7 +14,7 @@
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
   },
-  "files": ["index.js", "client.js", "cordis.patch.yml", "icon.webp", "locale/*.json", "README.md", "README.zh.md", "LICENSE"],
+  "files": ["index.js", "client.js", "cordis.patch.yml", "icon.webp", "docs/screenshot.webp", "locale/*.json", "README.md", "README.zh.md", "LICENSE"],
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {

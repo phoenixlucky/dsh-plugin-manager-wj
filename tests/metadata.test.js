@@ -16,6 +16,19 @@ test('the marketplace entry names the plugin and recommends the MCP settings bun
   }
 })
 
+test('the README screenshot exists and ships with the package', () => {
+  // The README links the demo through a relative path, so npm can render it only when the file is
+  // in the tarball.
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
+  assert.ok(readme.includes('docs/screenshot.webp'), 'the English README links the demo')
+  const zh = readFileSync(new URL('../README.zh.md', import.meta.url), 'utf8')
+  assert.ok(zh.includes('docs/screenshot.webp'), 'the Chinese README links the demo')
+  const shot = new URL('../docs/screenshot.webp', import.meta.url)
+  assert.ok(statSync(shot).size > 0, 'the demo image exists')
+  assert.equal(readFileSync(shot).subarray(8, 12).toString('ascii'), 'WEBP', 'the demo is WebP')
+  assert.ok(packageJson.files.includes('docs/screenshot.webp'), 'npm pack must include the demo')
+})
+
 test('the package ships an icon the Host can read without loading the plugin', () => {
   assert.equal(packageJson.icon, 'icon.webp')
   const icon = new URL('../icon.webp', import.meta.url)
