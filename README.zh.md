@@ -55,11 +55,11 @@ npm install @tinyforge/dsh-plugin-manager-wj
 ## 发布
 
 ```sh
-npm test                        # node --test：27 项检查（视图、工具归属、Host 路由、inject 契约、模块 id、patch 结构）
+npm test                        # node --test：29 项检查（视图、工具归属、Host 路由、inject 契约、模块 id、patch 结构）
 npm publish --access public     # 发布到 registry.npmjs.org
 ```
 
-包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.5.0 && git push --tags`），让 GitHub 历史与 registry 版本对应。
+包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.5.1 && git push --tags`），让 GitHub 历史与 registry 版本对应。
 
 ## 开发
 

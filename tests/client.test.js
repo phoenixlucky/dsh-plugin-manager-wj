@@ -61,12 +61,18 @@ function createRuntime() {
         queued.push(cell)
       }
     },
+    useRef(initial) {
+      const store = hookStore
+      const index = store.index++
+      if (!store.refs[index]) store.refs[index] = { current: initial }
+      return store.refs[index]
+    },
   }
 
   const storeFor = path => {
     let store = stores.get(path)
     if (!store) {
-      store = { path, cells: [], index: 0 }
+      store = { path, cells: [], refs: [], index: 0 }
       stores.set(path, store)
     }
     return store
@@ -140,6 +146,9 @@ function createPage(options = {}) {
   // page can be driven without a Host.
   const fetch = async (url, init) => {
     toolCalls.push({ url, init })
+    // A real route answers over the network, so its promise settles after React has already flushed
+    // the loading render and every effect pass that follows it. `toolDelayMs` reproduces that order.
+    if (options.toolDelayMs) await new Promise(resolve => setTimeout(resolve, options.toolDelayMs))
     if (options.toolRoute === 'missing') return { ok: false, status: 404 }
     if (options.toolRoute === 'offline') throw new Error('offline')
     return { ok: true, status: 200, json: async () => ({ tools: options.tools ?? [] }) }
@@ -270,6 +279,14 @@ function createPage(options = {}) {
     tabs,
     panelById,
     text: () => textOf(tree),
+    waitFor: async (predicate, rounds = 100) => {
+      for (let round = 0; round < rounds; round++) {
+        if (predicate()) return true
+        await new Promise(resolve => setTimeout(resolve, 5))
+        if (runtime.dirty) tree = runtime.render(root)
+      }
+      return predicate()
+    },
     clickTab: async id => {
       tabs().find(tab => tab.props.id === id).props.onClick()
       tree = runtime.render(root)
@@ -444,6 +461,24 @@ test('an offline registry read is reported as a failure with a retry', async () 
   await page.clickTab('wj-tab-tools')
 
   assert.ok(textOf(page.panelById('wj-panel-tools')).includes('toolInventoryError'))
+})
+
+test('a registry read that answers after the loading render still lands', async () => {
+  // The Host scans package sources before it answers, so the fetch settles long after React has
+  // flushed the loading render and every effect pass that follows. An effect that depends on the
+  // state it sets re-runs in that window, disposes its first run, and drops the answer; the view
+  // then shows "正在读取工具注册清单…" forever. This is the order a real route produces, and the
+  // test runtime's zero-delay fetch never produced it.
+  const page = createPage({
+    sessionsById: {},
+    toolDelayMs: 25,
+    tools: [{ name: 'read_file', scope: 'global', owner: { kind: 'package', moduleName: 'fs-plugin', entryId: 'fs', inferred: true } }],
+  })
+  await page.settle()
+  await page.clickTab('wj-tab-tools')
+  const arrived = await page.waitFor(() => textOf(page.panelById('wj-panel-tools') ?? { children: [] }).includes('read_file'))
+  assert.equal(arrived, true, 'the late answer must be applied instead of leaving the view loading')
+  assert.equal(page.toolCalls.length, 1, 'one visit reads the route once')
 })
 
 test('a legacy inventory snapshot still fills the plugin and tool views', async () => {

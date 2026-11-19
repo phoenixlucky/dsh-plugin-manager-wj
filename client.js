@@ -16,6 +16,9 @@ window.__ModuleLoader__.load({
     // The Host half serves the tool registry on the shared authenticated `/api` channel; the
     // official Remote table carries no tool namespace, so this route is the only way in.
     const TOOL_INVENTORY_URL = '/api/wj/tool-inventory'
+    // The Host may answer slowly (its snapshot scans package sources), but a read that never settles
+    // must surface as a retryable failure instead of a spinner that never ends.
+    const TOOL_INVENTORY_TIMEOUT_MS = 20_000
 
     function unwrap(result, name) {
       if (!result || result.ok !== true) throw new Error(`${name}: ${result?.error?.message ?? 'unavailable'}`)
@@ -461,17 +464,29 @@ window.__ModuleLoader__.load({
 
       // The tool registry is session-wide Host state and the route scans package sources once, so
       // it loads when the view is first opened, and again only when the page is refreshed.
+      //
+      // The loaded revision is held in a ref rather than in this effect's dependencies. A dependency
+      // on `tools` re-ran this effect right after it set the loading state; React then disposed the
+      // first run, its cleanup flipped `live` off, and the read that finally arrived was dropped —
+      // the view stayed on "loading" forever in the browser (the deferred test runtime happened to
+      // resolve the read before the cleanup, which is why it never showed).
+      const loadedToolsRevision = React.useRef(undefined)
       React.useEffect(() => {
         if (tab !== 'tools' || typeof loadTools !== 'function') return undefined
-        if (tools.kind !== 'idle' && tools.revision === revision) return undefined
+        if (loadedToolsRevision.current === revision) return undefined
         let live = true
         setTools({ kind: 'loading', revision })
         Promise.resolve()
           .then(() => loadTools())
-          .then(result => { if (live) setTools({ ...result, revision }) })
+          .then(result => {
+            if (!live) return
+            // Only a completed read is worth remembering; a failed one retries when the view reopens.
+            if (result?.kind === 'ready') loadedToolsRevision.current = revision
+            setTools({ ...result, revision })
+          })
           .catch(() => { if (live) setTools({ kind: 'error', revision }) })
         return () => { live = false }
-      }, [loadTools, tab, revision, tools.kind, tools.revision])
+      }, [loadTools, tab, revision])
 
       const refresh = () => {
         setState(current => ({ kind: 'loading', snapshot: current.snapshot }))
@@ -654,11 +669,21 @@ window.__ModuleLoader__.load({
         // `ctx.remote` carries no tool namespace and a Client plugin cannot add one.
         const loadTools = async () => {
           if (typeof fetch !== 'function') return { kind: 'unavailable' }
+          const controller = typeof AbortController === 'function' ? new AbortController() : undefined
+          const timer = controller !== undefined && typeof setTimeout === 'function'
+            ? setTimeout(() => { try { controller.abort() } catch (_error) { /* already settled */ } }, TOOL_INVENTORY_TIMEOUT_MS)
+            : undefined
           let response
           try {
-            response = await fetch(TOOL_INVENTORY_URL, { credentials: 'same-origin', headers: { accept: 'application/json' } })
+            response = await fetch(TOOL_INVENTORY_URL, {
+              credentials: 'same-origin',
+              headers: { accept: 'application/json' },
+              ...(controller === undefined ? {} : { signal: controller.signal }),
+            })
           } catch (_error) {
             return { kind: 'error' }
+          } finally {
+            if (timer !== undefined) clearTimeout(timer)
           }
           if (!response || response.ok !== true) return { kind: 'unavailable' }
           try {

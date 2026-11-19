@@ -107,10 +107,30 @@ test('the package scan stops at its file budget', () => {
   })
   const sources = readPackageSources(ctx, {
     maxFiles: 1,
+    statFile: () => ({ size: 128 }),
     readFile: path => path.endsWith('package.json') ? JSON.stringify({ main: 'index.js' }) : 'defineTool({ name: "x" })',
   })
   assert.equal(sources.length, 1)
   assert.equal(sources[0].entryId, 'a')
+})
+
+test('an entry bundle above the size limit is stat-checked and never read', () => {
+  // Entry bundles of tens of megabytes cannot contribute a scan result, so reading them only
+  // blocks the Host. The size comes from stat, before any read of the bundle itself.
+  const reads = []
+  const { ctx } = createCtx({
+    entries: [{ id: 'big', options: { name: 'big' } }],
+    packages: { packageOf: () => ({ manifestPath: 'C:/pkg/package.json' }) },
+  })
+  const sources = readPackageSources(ctx, {
+    statFile: () => ({ size: 9 * 1024 * 1024 }),
+    readFile: path => {
+      reads.push(path)
+      return path.endsWith('package.json') ? JSON.stringify({ main: 'huge.js' }) : 'defineTool({ name: "x" })'
+    },
+  })
+  assert.deepEqual(sources, [])
+  assert.ok(!reads.some(path => path.endsWith('huge.js')), 'the oversized bundle is skipped, not read')
 })
 
 test('a snapshot combines rows with the owner the Host could establish', () => {

@@ -13,7 +13,7 @@
  * MCP tool names (their names carry the server) and falls back to a package-source scan, which is
  * marked `inferred` so the page never presents a guess as a Host fact.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 
 /** Absolute path below the shared `/api` channel. */
@@ -196,6 +196,7 @@ export function readPackageSources(ctx, options = {}) {
   const packages = optional(ctx, 'pluginPackages')
   const entries = typeof loader?.entries === 'function' ? loader.entries() : []
   const readFile = options.readFile ?? readFileSync
+  const statFile = options.statFile ?? statSync
   const maxFiles = options.maxFiles ?? FILE_BUDGET
   const maxBytes = options.maxBytes ?? TOTAL_LIMIT_BYTES
 
@@ -219,6 +220,10 @@ export function readPackageSources(ctx, options = {}) {
       const manifest = JSON.parse(readFile(manifestPath, 'utf8'))
       const main = typeof manifest?.main === 'string' && manifest.main.length > 0 ? manifest.main : 'index.js'
       const file = isAbsolute(main) ? main : join(dirname(manifestPath), main)
+      // A bundle above the limit is discarded after the read anyway; some plugin entry bundles are
+      // tens of megabytes, and reading one only to drop it blocks the Host for no result.
+      const size = statFile(file)?.size
+      if (typeof size === 'number' && size > FILE_LIMIT_BYTES) continue
       const text = readFile(file, 'utf8')
       if (typeof text !== 'string' || text.length === 0 || text.length > FILE_LIMIT_BYTES) continue
       files += 1

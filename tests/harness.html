@@ -64,10 +64,16 @@
         cell.fn = fn
         if (changed) { cell.initialized = true; queued.push(cell) }
       },
+      useRef(initial) {
+        const store = hookStore
+        const index = store.index++
+        if (!store.refs[index]) store.refs[index] = { current: initial }
+        return store.refs[index]
+      },
     }
     const storeFor = path => {
       let store = stores.get(path)
-      if (!store) { store = { path, cells: [], index: 0 }; stores.set(path, store) }
+      if (!store) { store = { path, cells: [], refs: [], index: 0 }; stores.set(path, store) }
       return store
     }
     const renderNode = (node, path) => {
