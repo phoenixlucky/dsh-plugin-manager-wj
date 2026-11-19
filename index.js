@@ -16,9 +16,6 @@
 import { readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 
-/** Cordis plugin name. */
-export const name = 'plugin-manager-wj'
-
 /** Absolute path below the shared `/api` channel. */
 export const TOOL_INVENTORY_PATH = '/api/wj/tool-inventory'
 
@@ -32,7 +29,7 @@ const TOTAL_LIMIT_BYTES = 64 * 1024 * 1024
 const FILE_BUDGET = 240
 
 /** How long one computed snapshot is reused; the page refreshes on demand, not per keystroke. */
-const CACHE_TTL_MS = 15_000
+const CACHE_TTL_MS = 30_000
 
 /** Keys in a package bundle that make a tool-name literal worth scanning for. */
 const REGISTRATION_MARKERS = /tools\s*\.\s*register|defineTool|registerTool/
