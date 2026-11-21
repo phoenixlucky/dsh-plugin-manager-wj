@@ -1,6 +1,6 @@
 {
   "name": "@tinyforge/dsh-plugin-manager-wj",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Plugin health, configuration provenance, skill catalog and tool-ownership views for DeepSeek Harness; MCP server management is recommended through @tinyforge/dsh-mcp-settings.",
   "type": "module",
   "main": "index.js",

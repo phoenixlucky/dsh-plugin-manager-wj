@@ -1,8 +1,10 @@
 # dsh-plugin-manager-wj
 
-[![npm version](https://img.shields.io/npm/v/@tinyforge/dsh-plugin-manager-wj.svg)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
-[![npm downloads](https://img.shields.io/npm/dm/@tinyforge/dsh-plugin-manager-wj.svg)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@tinyforge/dsh-plugin-manager-wj?label=npm)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
+[![downloads](https://img.shields.io/npm/dm/@tinyforge/dsh-plugin-manager-wj?label=downloads)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
+![DSH Web Plugin](https://img.shields.io/badge/DSH_Web_Plugin-yes-brightgreen)
+![DSH tested up to](https://img.shields.io/badge/DSH_tested_up_to-0.2.2--rc.5-blue)
 
 **WJ 插件管理中心**是 DeepSeek Harness 三层插件管理架构的 Web 管理层，扩展现有独立 WJ bundle，并在 **设置 → 插件** 下添加管理标签页。页面内有 **插件 / 健康诊断 / 配置 / Skill / 工具** 五个视图，可直接切换，不需要离开当前页面。
 
@@ -62,7 +64,7 @@ npm test                        # node --test：34 项检查（视图、健康�
 npm publish --access public     # 发布到 registry.npmjs.org
 ```
 
-包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.7.1 && git push --tags`），让 GitHub 历史与 registry 版本对应。
+包名带 scope，发布新版本需要 `@tinyforge` npm scope 的维护者权限。发布后给对应提交打 tag（`git tag v1.7.3 && git push --tags`），让 GitHub 历史与 registry 版本对应。
 
 ## 开发
 

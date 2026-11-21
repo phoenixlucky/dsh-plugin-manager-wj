@@ -1,8 +1,10 @@
 # dsh-plugin-manager-wj
 
-[![npm version](https://img.shields.io/npm/v/@tinyforge/dsh-plugin-manager-wj.svg)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
-[![npm downloads](https://img.shields.io/npm/dm/@tinyforge/dsh-plugin-manager-wj.svg)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@tinyforge/dsh-plugin-manager-wj?label=npm)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
+[![downloads](https://img.shields.io/npm/dm/@tinyforge/dsh-plugin-manager-wj?label=downloads)](https://www.npmjs.com/package/@tinyforge/dsh-plugin-manager-wj)
+![DSH Web Plugin](https://img.shields.io/badge/DSH_Web_Plugin-yes-brightgreen)
+![DSH tested up to](https://img.shields.io/badge/DSH_tested_up_to-0.2.2--rc.5-blue)
 
 **WJ Plugin Management** is the Web management layer for DeepSeek Harness's three-layer plugin-management design. It extends the independent WJ bundle and adds a management tab under **Settings → Plugins** whose five views switch without leaving the page: **Plugins**, **Health**, **Configuration**, **Skills** and **Tools**.
 
@@ -62,7 +64,7 @@ npm test                        # node --test: 34 checks (views, findings, tool 
 npm publish --access public     # writes to registry.npmjs.org
 ```
 
-The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.7.1 && git push --tags`) so the GitHub history matches the registry.
+The package name is scoped, so publishing a new version needs maintainer access to the `@tinyforge` npm scope. Tag the published commit (`git tag v1.7.3 && git push --tags`) so the GitHub history matches the registry.
 
 ## Development
 
